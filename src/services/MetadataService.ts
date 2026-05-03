@@ -69,8 +69,15 @@ export class MetadataService {
       filePath = path.join(/*turbopackIgnore: true*/ dirPath, `${data.name.toLowerCase()}.json`);
     }
 
-    this.ensureDir(dirPath);
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    try {
+      this.ensureDir(dirPath);
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    } catch (e) {
+      // Ignore write errors in read-only environments like Vercel
+      if (process.env.NODE_ENV === 'development') {
+        console.error(`Error saving local data for ${data.name}:`, e);
+      }
+    }
   }
 
   static async fetchStateFromWikidata(stateName: string): Promise<LocationMetadata | null> {
@@ -78,21 +85,22 @@ export class MetadataService {
       SELECT ?state ?capitalLabel ?population ?area ?literacy ?headLabel ?partyLabel ?demographics
       WHERE {
         {
-          ?state wdt:P17 wd:Q668;
-                 wdt:P300 ?iso;
-                 rdfs:label "${stateName}"@en.
+          {
+            ?state wdt:P17 wd:Q668;
+                   wdt:P300 ?iso;
+                   rdfs:label "${stateName}"@en.
+          } UNION {
+            ?state wdt:P17 wd:Q668;
+                   wdt:P300 ?iso;
+                   skos:altLabel "${stateName}"@en.
+          }
+          FILTER(STRSTARTS(?iso, "IN-"))
         } UNION {
+          # Fallback for entities without ISO codes (districts, historical regions)
           ?state wdt:P17 wd:Q668;
-                 wdt:P300 ?iso;
-                 skos:altLabel "${stateName}"@en.
+                 rdfs:label "${stateName}"@en.
+          BIND("N/A" AS ?iso)
         }
-        FILTER(STRSTARTS(?iso, "IN-"))
-      } UNION {
-        # Fallback for entities without ISO codes (districts, historical regions)
-        ?state wdt:P17 wd:Q668;
-               rdfs:label "${stateName}"@en.
-        BIND("N/A" AS ?iso)
-      }
         
         OPTIONAL { ?state wdt:P36 ?capital. }
         OPTIONAL { ?state wdt:P1082 ?population. }
@@ -129,7 +137,32 @@ export class MetadataService {
       const data = await res.json();
       const result = data.results.bindings[0];
 
-      if (!result) return null;
+      if (!result) {
+        console.log(`Wikidata returned no results for ${stateName}, falling back to AI...`);
+        // Fallback: If Wikidata returns nothing, try AI-only extraction
+        const aiOnly = await getLocationMetadata(stateName, 'states');
+        if (!aiOnly) {
+          console.error(`AI fallback also failed for ${stateName}`);
+          return null;
+        }
+        console.log(`AI fallback successful for ${stateName}`);
+        return {
+          name: stateName,
+          capital: aiOnly.capital,
+          population: aiOnly.population || undefined,
+          area: aiOnly.area || undefined,
+          literacy: aiOnly.literacy || undefined,
+          governmentHead: aiOnly.capital, // Fallback
+          governmentParty: aiOnly.governmentParty || undefined,
+          religion: aiOnly.religion ? {
+            hinduism: aiOnly.religion.hindu ?? undefined,
+            islam: aiOnly.religion.muslim ?? undefined,
+            christianity: aiOnly.religion.christian ?? undefined,
+          } : {},
+          majorCities: aiOnly.majorCities || [],
+          lastUpdated: new Date().toISOString()
+        };
+      }
 
       const stateId = result.state?.value?.split('/')?.pop();
       const demoId = result.demographics?.value?.split('/')?.pop();
