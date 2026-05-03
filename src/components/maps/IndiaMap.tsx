@@ -5,8 +5,9 @@ import {
   ComposableMap,
   Geographies,
   Geography,
-  ZoomableGroup
+  Marker
 } from "react-simple-maps";
+import { STATE_CENTERS } from "@/data/mapConstants";
 
 const geoUrl = "/maps/india-level1.json";
 
@@ -16,7 +17,7 @@ interface IndiaMapProps {
 
 const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
   return (
-    <div className="w-full h-[400 md:h-[600px] bg-white rounded-2xl shadow-inner border border-slate-100 overflow-hidden">
+    <div className="w-full h-[500px] md:h-[600px] bg-white rounded-2xl shadow-inner border border-slate-100 overflow-hidden">
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{
@@ -25,32 +26,54 @@ const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
         }}
         style={{ width: "100%", height: "100%" }}
       >
-        <ZoomableGroup zoom={1}>
-          <Geographies geography={geoUrl}>
-            {({ geographies }) =>
-              geographies.map((geo) => {
-                const stateName = geo.properties.NAME_1;
-                const isHighlighted = highlightState && 
-                  stateName.toLowerCase().includes(highlightState.toLowerCase());
-                
-                return (
-                  <Geography
-                    key={geo.rsmKey}
-                    geography={geo}
-                    fill={isHighlighted ? "#2563eb" : "#F8FAFC"}
-                    stroke="#CBD5E1"
-                    strokeWidth={0.5}
-                    style={{
-                      default: { outline: "none" },
-                      hover: { fill: "#DBEAFE", outline: "none" },
-                      pressed: { fill: "#2563eb", outline: "none" },
-                    }}
-                  />
-                );
-              })
-            }
-          </Geographies>
-        </ZoomableGroup>
+        <Geographies geography={geoUrl}>
+          {({ geographies }) =>
+            geographies.map((geo) => {
+              const stateName = geo.properties.NAME_1;
+              const isHighlighted = highlightState && 
+                stateName.toLowerCase().includes(highlightState.toLowerCase());
+              
+              return (
+                <Geography
+                  key={geo.rsmKey}
+                  geography={geo}
+                  fill={isHighlighted ? "#2563eb" : "#F8FAFC"}
+                  stroke="#CBD5E1"
+                  strokeWidth={0.5}
+                  style={{
+                    default: { outline: "none" },
+                    hover: { fill: "#DBEAFE", outline: "none" },
+                    pressed: { fill: "#2563eb", outline: "none" },
+                  }}
+                />
+              );
+            })
+          }
+        </Geographies>
+
+        {highlightState && Object.entries(STATE_CENTERS).map(([name, coords]) => {
+          if (name.toLowerCase().includes(highlightState.toLowerCase())) {
+            return (
+              <Marker key={name} coordinates={coords}>
+                <text
+                  textAnchor="middle"
+                  fill="#1E293B"
+                  style={{ 
+                    fontFamily: "system-ui", 
+                    fontSize: "14px", 
+                    fontWeight: "black",
+                    paintOrder: "stroke",
+                    stroke: "white",
+                    strokeWidth: "4px"
+                  }}
+                >
+                  {name.replace(/([a-z])([A-Z])/g, '$1 $2')}
+                </text>
+              </Marker>
+            );
+          }
+          return null;
+        })}
       </ComposableMap>
     </div>
   );
