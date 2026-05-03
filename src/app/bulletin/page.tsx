@@ -42,6 +42,7 @@ function BulletinContent() {
   const [matchedDistrict, setMatchedDistrict] = useState<string | null>(null);
   const [stateData, setStateData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDataLoading, setIsDataLoading] = useState(false);
   const [districtsSummary, setDistrictsSummary] = useState<any[]>([]);
   const [allDistrictNames, setAllDistrictNames] = useState<string[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
