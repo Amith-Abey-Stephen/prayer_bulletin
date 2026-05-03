@@ -44,7 +44,12 @@ function BulletinContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [digitalId, setDigitalId] = useState("");
   const bulletinRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setDigitalId(`PBG-${Math.random().toString(36).substring(7).toUpperCase()}`);
+  }, []);
 
   useEffect(() => {
     async function findLocation() {
@@ -62,14 +67,27 @@ function BulletinContent() {
         if (districtMatch) {
           setMatchedState(districtMatch.properties.NAME_1);
           setMatchedDistrict(districtMatch.properties.NAME_2);
+          
+          // Calculate total districts for this state
+          const stateDistricts = data.features.filter((f: any) => 
+            f.properties.NAME_1.toLowerCase() === districtMatch.properties.NAME_1.toLowerCase()
+          );
+          setStateData((prev: any) => ({ ...prev, totalDistricts: stateDistricts.length }));
         } else {
           // Search in states
           const stateMatch = data.features.find((f: any) => 
+            f.properties.NAME_1.toLowerCase() === location.toLowerCase() ||
             f.properties.NAME_1.toLowerCase().includes(location.toLowerCase())
           );
           if (stateMatch) {
             setMatchedState(stateMatch.properties.NAME_1);
             setMatchedDistrict(null);
+            
+            // Calculate total districts
+            const stateDistricts = data.features.filter((f: any) => 
+              f.properties.NAME_1.toLowerCase() === stateMatch.properties.NAME_1.toLowerCase()
+            );
+            setStateData((prev: any) => ({ ...prev, totalDistricts: stateDistricts.length }));
           }
         }
       } catch (error) {
@@ -102,12 +120,17 @@ function BulletinContent() {
               const dRes = await fetch(`/api/state-data?name=${encodeURIComponent(matchedDistrict)}&type=districts&parent=${encodeURIComponent(normalizedState)}`);
               const dData = await dRes.json();
               if (!dData.error) {
-                setStateData({ ...data, ...dData, source: dData.source });
+                setStateData((prev: any) => ({ 
+                  ...data, 
+                  ...dData, 
+                  source: dData.source,
+                  totalDistricts: prev?.totalDistricts // Keep the district count we calculated
+                }));
               } else {
-                setStateData(data);
+                setStateData((prev: any) => ({ ...data, totalDistricts: prev?.totalDistricts }));
               }
             } else {
-              setStateData(data);
+              setStateData((prev: any) => ({ ...data, totalDistricts: prev?.totalDistricts }));
             }
           }
         } catch (e) {
@@ -231,12 +254,12 @@ function BulletinContent() {
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-50/30 rounded-full -ml-48 -mb-48 blur-3xl"></div>
 
         {/* Header */}
-        <div className="bg-slate-900 text-white p-12 relative overflow-hidden">
-          <div className="absolute inset-0 opacity-10">
+        <div className="bg-white text-slate-900 p-12 relative overflow-hidden border-b border-slate-100">
+          <div className="absolute inset-0 opacity-40">
             <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
               <defs>
                 <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5"/>
+                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E2E8F0" strokeWidth="0.5"/>
                 </pattern>
               </defs>
               <rect width="100%" height="100%" fill="url(#grid)" />
@@ -245,70 +268,52 @@ function BulletinContent() {
           
           <div className="relative z-10 flex justify-between items-start">
             <div>
-              <p className="text-blue-400 font-bold tracking-[0.2em] uppercase text-xs mb-3">
+              <p className="text-blue-600 font-bold tracking-[0.2em] uppercase text-[10px] mb-3">
                 Prayer Department | AGDMC
               </p>
-              <h1 className="text-5xl font-black mb-2 tracking-tight">
+              <h1 className="text-5xl font-black mb-2 tracking-tight text-slate-900">
                 PRAYER BULLETIN
               </h1>
-              <div className="flex items-center gap-2 text-slate-400 text-sm font-medium italic">
-                <span className="w-12 h-[1px] bg-slate-700"></span>
+              <div className="flex items-center gap-2 text-slate-500 text-sm font-medium italic">
+                <span className="w-12 h-[1px] bg-slate-200"></span>
                 Focus: {matchedDistrict || matchedState || location}
-                <span className="w-12 h-[1px] bg-slate-700"></span>
+                <span className="w-12 h-[1px] bg-slate-200"></span>
               </div>
             </div>
             <div className="text-right">
-              <div className="text-4xl font-serif italic text-blue-500 opacity-50 mb-1">2026</div>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-tight">
+              <div className="text-4xl font-serif italic text-blue-600 opacity-20 mb-1">2026</div>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight">
                 Official Report<br/>Issue #042
               </p>
             </div>
           </div>
         </div>
 
-        <div className="p-12 space-y-12 relative z-10">
-          {/* Maps Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">01</span>
-                  National Context
-                </h2>
-              </div>
-              <div className="rounded-2xl border border-slate-100 overflow-hidden shadow-sm bg-slate-50/30">
-                <IndiaMap highlightState={matchedState || undefined} />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">02</span>
-                  Regional View
-                </h2>
-              </div>
-              <div className="rounded-2xl border border-slate-100 overflow-hidden shadow-sm bg-slate-50/30">
-                {matchedState ? (
-                  <StateDistrictMap stateName={matchedState} highlightDistrict={matchedDistrict || undefined} />
-                ) : (
-                  <div className="w-full h-full min-h-[300px] flex items-center justify-center bg-slate-50 italic text-slate-400 text-sm">
-                    Map not available for this region
-                  </div>
-                )}
-              </div>
+        <div className="p-12 space-y-16 relative z-10">
+          {/* Section 1: National Context */}
+          <div className="space-y-6">
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">01</span>
+              National Context (India)
+            </h2>
+            <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-2xl bg-white p-4">
+              <IndiaMap highlightState={matchedState || undefined} />
             </div>
           </div>
 
-          {/* Stats Grid */}
-          <div className="space-y-6">
-            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">03</span>
-              Regional Analytics
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {/* Section 2: State Analytics (The requested reorder) */}
+          <div className="space-y-8">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">02</span>
+                Summary Details: {matchedState || location}
+              </h2>
+              {isDataLoading && <div className="animate-pulse text-[10px] text-blue-600 font-black uppercase tracking-widest">Live Fetching...</div>}
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatCard 
-                label="Population" 
+                label="Total Population" 
                 value={formatNumber(stateData?.population)} 
                 color="blue"
                 icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
@@ -326,39 +331,75 @@ function BulletinContent() {
                 icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H5a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>}
               />
               <StatCard 
-                label="Literacy" 
+                label="Total Districts" 
+                value={stateData?.totalDistricts?.toString() || "---"} 
+                color="rose"
+                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>}
+              />
+              <StatCard 
+                label="Literacy Rate" 
                 value={formatLiteracy(stateData?.literacy)} 
                 color="indigo"
                 icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>}
               />
               <StatCard 
-                label="Religions (%)" 
-                value={stateData?.religion ? Object.keys(stateData.religion)[0] : "---"} 
-                color="amber"
-                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                label="Ruling Government" 
+                value={stateData?.governmentParty || "---"} 
+                color="cyan"
+                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H5a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>}
               />
-              <StatCard 
-                label="Status" 
-                value={stateData?.source === "local" ? "Verified" : "Fetching"} 
-                color="rose"
-                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>}
-              />
+              <div className="col-span-2 p-6 bg-amber-50/50 rounded-xl border border-amber-100">
+                <p className="text-[10px] uppercase tracking-widest text-amber-600 font-bold mb-3 flex items-center gap-2">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  Religious Demographics (%)
+                </p>
+                <div className="flex flex-wrap gap-x-6 gap-y-2">
+                  {stateData?.religion ? (
+                    Object.entries(stateData.religion).map(([rel, val]: [string, any]) => (
+                      <div key={rel} className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                        <span className="text-xs font-semibold text-slate-700 capitalize">{rel}:</span>
+                        <span className="text-xs font-bold text-slate-900">{val.toFixed(1)}%</span>
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-xs text-slate-400 italic">Data not available</span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Prayer Points Section - NEW */}
+          {/* Section 3: Regional View (Next Map) */}
           <div className="space-y-6">
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">03</span>
+              Regional Breakdown: {matchedState}
+            </h2>
+            <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-2xl bg-white p-4">
+              {matchedState ? (
+                <StateDistrictMap stateName={matchedState} highlightDistrict={matchedDistrict || undefined} />
+              ) : (
+                <div className="w-full h-full min-h-[400px] flex items-center justify-center bg-slate-50 italic text-slate-400 text-sm">
+                  Select a state to visualize districts
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 4: Prayer Points */}
+          <div className="space-y-8 bg-slate-50/50 p-10 rounded-[2.5rem] border border-slate-100">
             <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
               <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">04</span>
               Targeted Prayer Points
             </h2>
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {prayerPoints.map((point, i) => (
-                <div key={i} className="flex gap-4 p-5 bg-slate-50/50 rounded-2xl border border-slate-100 group hover:bg-white hover:shadow-md transition-all">
-                  <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 text-[10px] font-bold mt-1 group-hover:scale-110 transition-transform">
+                <div key={i} className="flex gap-4 p-6 bg-white rounded-2xl shadow-sm border border-slate-100 group hover:shadow-md transition-all">
+                  <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 text-xs font-bold group-hover:rotate-12 transition-transform">
                     {i + 1}
                   </div>
-                  <p className="text-slate-700 leading-relaxed font-medium">
+                  <p className="text-slate-700 text-sm leading-relaxed font-medium">
                     {point}
                   </p>
                 </div>
@@ -378,7 +419,7 @@ function BulletinContent() {
             <div className="text-right">
               <p className="text-[9px] text-slate-400 font-medium">
                 © 2026 Prayer Department | AGDMC<br/>
-                Digital Identification: PBG-{Math.random().toString(36).substring(7).toUpperCase()}
+                Digital Identification: {digitalId || "PBG-LOADING..."}
               </p>
             </div>
           </div>
