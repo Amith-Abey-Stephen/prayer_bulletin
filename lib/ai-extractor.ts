@@ -3,22 +3,22 @@ import { z } from 'zod';
 
 // Schema for the expected structured metadata
 export const MetadataSchema = z.object({
-  name: z.string(),
-  capital: z.string(),
-  population: z.number().nullable(),
-  area: z.number().nullable(),
-  literacy: z.number().nullable(),
+  name: z.string().default("Unknown"),
+  capital: z.string().default("Unknown"),
+  population: z.number().nullable().default(null),
+  area: z.number().nullable().default(null),
+  literacy: z.number().nullable().default(null),
   religion: z.object({
-    hindu: z.number().nullable(),
-    muslim: z.number().nullable(),
-    christian: z.number().nullable()
-  }),
-  governmentParty: z.string().nullable(),
-  majorCities: z.array(z.string()),
+    hindu: z.number().nullable().default(null),
+    muslim: z.number().nullable().default(null),
+    christian: z.number().nullable().default(null)
+  }).default({ hindu: null, muslim: null, christian: null }),
+  governmentParty: z.string().nullable().default(null),
+  majorCities: z.array(z.string()).default([]),
   coordinates: z.object({
-    lat: z.number().nullable(),
-    lng: z.number().nullable()
-  })
+    lat: z.number().nullable().default(null),
+    lng: z.number().nullable().default(null)
+  }).default({ lat: null, lng: null })
 });
 
 type Metadata = z.infer<typeof MetadataSchema>;

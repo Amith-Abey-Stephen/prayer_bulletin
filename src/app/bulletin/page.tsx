@@ -43,6 +43,7 @@ function BulletinContent() {
   const [stateData, setStateData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(false);
+  const [districtsSummary, setDistrictsSummary] = useState<any[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const [digitalId, setDigitalId] = useState("");
   const bulletinRef = useRef<HTMLDivElement>(null);
@@ -131,6 +132,16 @@ function BulletinContent() {
               }
             } else {
               setStateData((prev: any) => ({ ...data, totalDistricts: prev?.totalDistricts }));
+            }
+
+            // Fetch top districts summary
+            if (data.majorCities && data.majorCities.length > 0) {
+              const topDistricts = data.majorCities.slice(0, 4);
+              const summaries = await Promise.all(topDistricts.map(async (d: string) => {
+                const r = await fetch(`/api/state-data?name=${encodeURIComponent(d)}&type=districts&parent=${encodeURIComponent(normalizedState)}`);
+                return r.ok ? await r.json() : null;
+              }));
+              setDistrictsSummary(summaries.filter(s => s !== null && !s.error));
             }
           }
         } catch (e) {
@@ -387,10 +398,64 @@ function BulletinContent() {
             </div>
           </div>
 
-          {/* Section 4: Prayer Points */}
+          {/* Section 04: District-by-District Summary */}
+          {matchedState && districtsSummary.length > 0 && (
+            <div className="space-y-8">
+              <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">04</span>
+                District-by-District Summary
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {districtsSummary.map((dist, i) => (
+                  <div key={i} className="p-8 bg-white rounded-[2rem] border border-slate-100 shadow-xl hover:shadow-2xl transition-all group overflow-hidden relative">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform"></div>
+                    <div className="relative z-10">
+                      <div className="flex justify-between items-start mb-6">
+                        <div>
+                          <p className="text-[10px] font-black text-blue-600 uppercase tracking-tighter mb-1">Administrative Unit</p>
+                          <h3 className="text-2xl font-black text-slate-900 tracking-tight">{dist.name}</h3>
+                        </div>
+                        <div className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-bold uppercase tracking-widest">
+                          Active Region
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-6 mb-6">
+                        <div>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Population</p>
+                          <p className="text-lg font-black text-slate-900">{formatNumber(dist.population)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Governing Party</p>
+                          <p className="text-lg font-black text-slate-900 truncate">{dist.governmentParty || "NDA/INC"}</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-6 border-t border-slate-50">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-3">Key Towns & Hubs</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(dist.majorCities && dist.majorCities.length > 0) ? (
+                            dist.majorCities.map((town: string, ti: number) => (
+                              <span key={ti} className="px-3 py-1.5 bg-slate-50 text-slate-600 rounded-xl text-[11px] font-bold border border-slate-100">
+                                {town}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-slate-400 italic">No specific town data</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Section 05: Prayer Points */}
           <div className="space-y-8 bg-slate-50/50 p-10 rounded-[2.5rem] border border-slate-100">
             <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">04</span>
+              <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">05</span>
               Targeted Prayer Points
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
