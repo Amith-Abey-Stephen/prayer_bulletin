@@ -42,7 +42,13 @@ export async function extractMetadata(sourceText: string, cacheKey: string): Pro
     model: 'z-ai/glm-4.5-air:free',
     temperature: 0,
     top_p: 0.1,
-    messages: [{ role: 'user', content: sourceText }]
+    messages: [
+      { 
+        role: 'system', 
+        content: 'You are a strict metadata extraction engine. Output ONLY valid JSON matching the user-specified schema. No markdown, no explanations, no preamble.' 
+      },
+      { role: 'user', content: sourceText }
+    ]
   };
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -55,24 +61,38 @@ export async function extractMetadata(sourceText: string, cacheKey: string): Pro
   });
 
   if (!response.ok) {
-    throw new Error(`OpenRouter request failed with ${response.status}`);
+    const errorText = await response.text();
+    throw new Error(`OpenRouter request failed with ${response.status}: ${errorText}`);
   }
 
   const data = await response.json();
-  const raw = data?.choices?.[0]?.message?.content?.trim();
+  let raw = data?.choices?.[0]?.message?.content?.trim();
   if (!raw) {
     throw new Error('No content returned from model');
   }
 
-  // The model should output raw JSON without markdown. Guard against stray characters.
+  // Robust JSON extraction: Handle markdown blocks if present
+  if (raw.includes('```')) {
+    const match = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (match) {
+      raw = match[1];
+    }
+  }
+
   const jsonStart = raw.indexOf('{');
   const jsonEnd = raw.lastIndexOf('}') + 1;
+  
+  if (jsonStart === -1 || jsonEnd === 0) {
+    throw new Error('No JSON object found in model response');
+  }
+
   const jsonString = raw.slice(jsonStart, jsonEnd);
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonString);
   } catch (e) {
+    console.error('Raw content that failed parsing:', raw);
     throw new Error('Model returned malformed JSON');
   }
 
