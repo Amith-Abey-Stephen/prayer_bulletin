@@ -26,7 +26,7 @@ export interface LocationMetadata {
 }
 
 export class MetadataService {
-  private static DATA_DIR = path.join(process.cwd(), 'data');
+  private static DATA_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), 'data');
 
   private static ensureDir(dir: string) {
     if (!fs.existsSync(dir)) {
@@ -37,11 +37,11 @@ export class MetadataService {
   static getLocalData(type: 'states' | 'districts' | 'towns', name: string, parentName?: string): LocationMetadata | null {
     let filePath: string;
     if (type === 'states') {
-      filePath = path.join(this.DATA_DIR, 'states', `${name.toLowerCase()}.json`);
+      filePath = path.join(/*turbopackIgnore: true*/ this.DATA_DIR, 'states', `${name.toLowerCase()}.json`);
     } else if (type === 'districts') {
-      filePath = path.join(this.DATA_DIR, 'districts', parentName?.toLowerCase() || 'unknown', `${name.toLowerCase()}.json`);
+      filePath = path.join(/*turbopackIgnore: true*/ this.DATA_DIR, 'districts', parentName?.toLowerCase() || 'unknown', `${name.toLowerCase()}.json`);
     } else {
-      filePath = path.join(this.DATA_DIR, 'towns', `${name.toLowerCase()}.json`);
+      filePath = path.join(/*turbopackIgnore: true*/ this.DATA_DIR, 'towns', `${name.toLowerCase()}.json`);
     }
 
     if (fs.existsSync(filePath)) {
@@ -59,14 +59,14 @@ export class MetadataService {
     let filePath: string;
 
     if (type === 'states') {
-      dirPath = path.join(this.DATA_DIR, 'states');
-      filePath = path.join(dirPath, `${data.name.toLowerCase()}.json`);
+      dirPath = path.join(/*turbopackIgnore: true*/ this.DATA_DIR, 'states');
+      filePath = path.join(/*turbopackIgnore: true*/ dirPath, `${data.name.toLowerCase()}.json`);
     } else if (type === 'districts') {
-      dirPath = path.join(this.DATA_DIR, 'districts', parentName?.toLowerCase() || 'unknown');
-      filePath = path.join(dirPath, `${data.name.toLowerCase()}.json`);
+      dirPath = path.join(/*turbopackIgnore: true*/ this.DATA_DIR, 'districts', parentName?.toLowerCase() || 'unknown');
+      filePath = path.join(/*turbopackIgnore: true*/ dirPath, `${data.name.toLowerCase()}.json`);
     } else {
-      dirPath = path.join(this.DATA_DIR, 'towns');
-      filePath = path.join(dirPath, `${data.name.toLowerCase()}.json`);
+      dirPath = path.join(/*turbopackIgnore: true*/ this.DATA_DIR, 'towns');
+      filePath = path.join(/*turbopackIgnore: true*/ dirPath, `${data.name.toLowerCase()}.json`);
     }
 
     this.ensureDir(dirPath);

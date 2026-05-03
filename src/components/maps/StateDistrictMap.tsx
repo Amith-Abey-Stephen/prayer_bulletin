@@ -8,7 +8,6 @@ import {
   Marker
 } from "react-simple-maps";
 import { geoPath } from "d3-geo";
-import { projection } from "d3-geo"; // Not needed directly but good to know
 import { STATE_CENTERS } from "@/data/mapConstants";
 
 const geoUrl = "/maps/india-level2.json";
