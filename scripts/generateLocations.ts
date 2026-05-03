@@ -14,8 +14,14 @@ function formatName(name: string) {
     return name.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
+interface Location {
+    name: string;
+    type: 'state' | 'district' | 'town';
+    parent: string;
+}
+
 async function main() {
-    const locations = [];
+    const locations: Location[] = [];
     const seen = new Set();
 
     if (!fs.existsSync(OUTPUT_DIR)) {

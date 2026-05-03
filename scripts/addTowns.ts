@@ -34,6 +34,12 @@ async function fetchMajorTowns() {
     }
 }
 
+interface Location {
+    name: string;
+    type: 'state' | 'district' | 'town';
+    parent: string;
+}
+
 async function main() {
     const filePath = path.join(process.cwd(), 'src', 'data', 'locations.json');
     if (!fs.existsSync(filePath)) {
@@ -41,14 +47,14 @@ async function main() {
         return;
     }
 
-    const locations = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    const towns = await fetchMajorTowns();
+    const locations: Location[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const towns: Location[] = await fetchMajorTowns();
 
-    const combined = [...locations, ...towns];
+    const combined: Location[] = [...locations, ...towns];
     
     // De-duplicate
     const seen = new Set();
-    const final = combined.filter(loc => {
+    const final = combined.filter((loc: Location) => {
         const key = `${loc.type}:${loc.name}:${loc.parent}`;
         if (seen.has(key)) return false;
         seen.add(key);
