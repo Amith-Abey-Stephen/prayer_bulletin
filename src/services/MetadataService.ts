@@ -87,6 +87,12 @@ export class MetadataService {
                  skos:altLabel "${stateName}"@en.
         }
         FILTER(STRSTARTS(?iso, "IN-"))
+      } UNION {
+        # Fallback for entities without ISO codes (districts, historical regions)
+        ?state wdt:P17 wd:Q668;
+               rdfs:label "${stateName}"@en.
+        BIND("N/A" AS ?iso)
+      }
         
         OPTIONAL { ?state wdt:P36 ?capital. }
         OPTIONAL { ?state wdt:P1082 ?population. }
@@ -192,19 +198,8 @@ export class MetadataService {
   }
 
   static async fetchDistrictFromWikidata(districtName: string, stateName: string): Promise<LocationMetadata | null> {
-    // Similar logic to state but restricted by parent state if possible
-    const query = `
-      SELECT ?district ?capitalLabel ?population ?area WHERE {
-        ?district wdt:P17 wd:Q668;
-                  wdt:P31 wd:Q1149652; # district of India
-                  rdfs:label "${districtName}"@en.
-        OPTIONAL { ?district wdt:P1082 ?population. }
-        OPTIONAL { ?district wdt:P2046 ?area. }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-      } LIMIT 1
-    `;
-    // ... logic same as state fetch ...
-    return this.fetchStateFromWikidata(districtName); // Re-use state logic for simplicity as it's broad enough
+    // We can just use the updated fetchStateFromWikidata which now handles non-ISO entities
+    return this.fetchStateFromWikidata(districtName);
   }
 
   static async fetchTownFromNominatim(townName: string): Promise<any | null> {

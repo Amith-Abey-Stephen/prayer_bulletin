@@ -26,9 +26,7 @@ export async function GET(request: Request) {
   if (type === "states") {
     metadata = await MetadataService.fetchStateFromWikidata(name);
   } else {
-    // For districts and towns, we can expand MetadataService logic
-    // For now, states logic works broadly
-    metadata = await MetadataService.fetchStateFromWikidata(name);
+    metadata = await MetadataService.fetchDistrictFromWikidata(name, parent || "");
   }
 
   if (metadata) {

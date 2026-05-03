@@ -42,8 +42,8 @@ function BulletinContent() {
   const [matchedDistrict, setMatchedDistrict] = useState<string | null>(null);
   const [stateData, setStateData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDataLoading, setIsDataLoading] = useState(false);
   const [districtsSummary, setDistrictsSummary] = useState<any[]>([]);
+  const [allDistrictNames, setAllDistrictNames] = useState<string[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const [digitalId, setDigitalId] = useState("");
   const bulletinRef = useRef<HTMLDivElement>(null);
@@ -88,6 +88,7 @@ function BulletinContent() {
             const stateDistricts = data.features.filter((f: any) => 
               f.properties.NAME_1.toLowerCase() === stateMatch.properties.NAME_1.toLowerCase()
             );
+            setAllDistrictNames(stateDistricts.map((f: any) => f.properties.NAME_2));
             setStateData((prev: any) => ({ ...prev, totalDistricts: stateDistricts.length }));
           }
         }
@@ -134,10 +135,20 @@ function BulletinContent() {
               setStateData((prev: any) => ({ ...data, totalDistricts: prev?.totalDistricts }));
             }
 
-            // Fetch top districts summary
-            if (data.majorCities && data.majorCities.length > 0) {
-              const topDistricts = data.majorCities.slice(0, 4);
-              const summaries = await Promise.all(topDistricts.map(async (d: string) => {
+            // Fetch district summaries
+            let targets: string[] = [];
+            if (matchedDistrict) {
+              // Mode 1: Specific place searched - show only that district
+              targets = [matchedDistrict];
+            } else if (allDistrictNames.length > 0) {
+              // Mode 2: State searched - show all (limited to top 6 for performance)
+              targets = allDistrictNames.slice(0, 6);
+            } else if (data.majorCities) {
+              targets = data.majorCities.slice(0, 4);
+            }
+
+            if (targets.length > 0) {
+              const summaries = await Promise.all(targets.map(async (d: string) => {
                 const r = await fetch(`/api/state-data?name=${encodeURIComponent(d)}&type=districts&parent=${encodeURIComponent(normalizedState)}`);
                 return r.ok ? await r.json() : null;
               }));
@@ -400,48 +411,71 @@ function BulletinContent() {
 
           {/* Section 04: District-by-District Summary */}
           {matchedState && districtsSummary.length > 0 && (
-            <div className="space-y-8">
+            <div className="space-y-12">
               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">04</span>
                 District-by-District Summary
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              <div className="space-y-16">
                 {districtsSummary.map((dist, i) => (
-                  <div key={i} className="p-8 bg-white rounded-[2rem] border border-slate-100 shadow-xl hover:shadow-2xl transition-all group overflow-hidden relative">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform"></div>
-                    <div className="relative z-10">
-                      <div className="flex justify-between items-start mb-6">
-                        <div>
-                          <p className="text-[10px] font-black text-blue-600 uppercase tracking-tighter mb-1">Administrative Unit</p>
-                          <h3 className="text-2xl font-black text-slate-900 tracking-tight">{dist.name}</h3>
-                        </div>
-                        <div className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                          Active Region
-                        </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-6 mb-6">
-                        <div>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Population</p>
-                          <p className="text-lg font-black text-slate-900">{formatNumber(dist.population)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Governing Party</p>
-                          <p className="text-lg font-black text-slate-900 truncate">{dist.governmentParty || "NDA/INC"}</p>
-                        </div>
-                      </div>
+                  <div key={i} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700" style={{ animationDelay: `${i * 150}ms` }}>
+                    <div className="flex items-center gap-4">
+                      <div className="h-[1px] flex-grow bg-slate-100"></div>
+                      <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+                        <span className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xs">{i+1}</span>
+                        {dist.name} District
+                      </h3>
+                      <div className="h-[1px] flex-grow bg-slate-100"></div>
+                    </div>
 
-                      <div className="pt-6 border-t border-slate-50">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-3">Key Towns & Hubs</p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <StatCard 
+                        label="Total Population" 
+                        value={formatNumber(dist.population)} 
+                        color="blue"
+                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
+                      />
+                      <StatCard 
+                        label="Area Coverage" 
+                        value={formatArea(dist.area)} 
+                        color="emerald"
+                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2 2 2 0 012 2v.684M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                      />
+                      <StatCard 
+                        label="Literacy Rate" 
+                        value={formatLiteracy(dist.literacy)} 
+                        color="indigo"
+                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>}
+                      />
+                      
+                      <div className="col-span-2 p-6 bg-slate-50/50 rounded-2xl border border-slate-100 flex flex-col justify-between">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-4">Key Urban Hubs & Centers</p>
                         <div className="flex flex-wrap gap-2">
                           {(dist.majorCities && dist.majorCities.length > 0) ? (
                             dist.majorCities.map((town: string, ti: number) => (
-                              <span key={ti} className="px-3 py-1.5 bg-slate-50 text-slate-600 rounded-xl text-[11px] font-bold border border-slate-100">
+                              <span key={ti} className="px-3 py-1.5 bg-white text-slate-600 rounded-xl text-[10px] font-bold border border-slate-200 shadow-sm">
                                 {town}
                               </span>
                             ))
                           ) : (
-                            <span className="text-xs text-slate-400 italic">No specific town data</span>
+                            <span className="text-xs text-slate-400 italic">No urban center data identified</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-amber-50/50 rounded-2xl border border-amber-100">
+                        <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest mb-3">Religious Breakdown (%)</p>
+                        <div className="space-y-2">
+                          {dist.religion ? (
+                            Object.entries(dist.religion).map(([rel, val]: [string, any]) => (
+                              <div key={rel} className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-600 capitalize">{rel}</span>
+                                <span className="text-[10px] font-black text-slate-900">{typeof val === 'number' ? val.toFixed(1) : val}%</span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-[10px] text-slate-400 italic">Detailed metrics pending...</p>
                           )}
                         </div>
                       </div>

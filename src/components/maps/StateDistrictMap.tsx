@@ -24,15 +24,33 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
   const center = useMemo(() => STATE_CENTERS[normalizedSearchName] || [82, 22], [normalizedSearchName]);
   
   return (
-    <div className="w-full h-[600px] md:h-[800px] bg-slate-50/30 rounded-[2.5rem] shadow-inner border border-slate-100 overflow-hidden relative">
-      <div className="absolute top-6 left-6 z-10 bg-white/80 backdrop-blur-md px-4 py-2 rounded-full border border-slate-200 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Regional Overview</p>
-        <p className="text-sm font-bold text-slate-900">{stateName}</p>
+    <div className="w-full h-[600px] md:h-[800px] bg-slate-50 rounded-[3rem] border border-slate-200 overflow-hidden relative shadow-[inset_0_2px_10px_rgba(0,0,0,0.05)]">
+      {/* Premium Background Pattern */}
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
+        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="map-grid" width="30" height="30" patternUnits="userSpaceOnUse">
+              <path d="M 30 0 L 0 0 0 30" fill="none" stroke="currentColor" strokeWidth="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#map-grid)" />
+        </svg>
       </div>
+
+      <div className="absolute top-8 left-8 z-10 bg-white/90 backdrop-blur-xl px-6 py-3 rounded-3xl border border-slate-200/50 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-none mb-1">State Analysis</p>
+            <p className="text-lg font-black text-slate-900 tracking-tight leading-none">{stateName}</p>
+          </div>
+        </div>
+      </div>
+
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{
-          scale: 10000, // Even more zoom for details
+          scale: 10000, 
           center: center
         }}
         style={{ width: "100%", height: "100%" }}
@@ -78,13 +96,13 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
                         fill={isHighlighted ? "#FFFFFF" : "#475569"}
                         style={{ 
                           fontFamily: "Inter, system-ui, sans-serif", 
-                          fontSize: isHighlighted ? "10px" : "7px", 
-                          fontWeight: "800",
+                          fontSize: isHighlighted ? "11px" : "8px", 
+                          fontWeight: "900",
                           textTransform: "uppercase",
-                          letterSpacing: "0.05em",
+                          letterSpacing: "0.02em",
                           paintOrder: "stroke",
-                          stroke: isHighlighted ? "none" : "white",
-                          strokeWidth: "2px"
+                          stroke: isHighlighted ? "none" : "rgba(255,255,255,0.9)",
+                          strokeWidth: "3px"
                         }}
                       >
                         {districtName}
