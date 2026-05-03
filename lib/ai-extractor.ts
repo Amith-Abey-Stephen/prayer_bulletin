@@ -96,7 +96,46 @@ export async function extractMetadata(sourceText: string, cacheKey: string): Pro
     throw new Error('Model returned malformed JSON');
   }
 
-  const result = MetadataSchema.safeParse(parsed);
+  // Pre-process data to handle AI "hallucinations" of types (e.g. string instead of number, or objects for simple values)
+  const sanitize = (val: any): any => {
+    if (val === null || val === undefined) return null;
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') {
+      // Remove commas and try to parse
+      const cleaned = val.replace(/,/g, '');
+      const num = Number(cleaned);
+      return isNaN(num) ? null : num;
+    }
+    if (typeof val === 'object') {
+      // If it's an object like { value: 123 }, extract the value
+      if ('value' in val) return sanitize(val.value);
+      // If it's an array, keep as is
+      if (Array.isArray(val)) return val.map(sanitize);
+      // Otherwise keep as object
+      return val;
+    }
+    return val;
+  };
+
+  // Clean up the parsed object before validation
+  const rawData = parsed as any;
+  const cleanedParsed = {
+    ...rawData,
+    population: sanitize(rawData.population),
+    area: sanitize(rawData.area),
+    literacy: sanitize(rawData.literacy),
+    religion: rawData.religion ? {
+      hindu: sanitize(rawData.religion.hindu),
+      muslim: sanitize(rawData.religion.muslim),
+      christian: sanitize(rawData.religion.christian)
+    } : undefined,
+    coordinates: rawData.coordinates ? {
+      lat: sanitize(rawData.coordinates.lat),
+      lng: sanitize(rawData.coordinates.lng)
+    } : undefined
+  };
+
+  const result = MetadataSchema.safeParse(cleanedParsed);
   if (!result.success) {
     throw new Error('Validation failed: ' + JSON.stringify(result.error.format()));
   }
