@@ -5,6 +5,8 @@ A modern, interactive web application to generate beautiful prayer bulletins wit
 
 ## ✨ Features
 
+- **Smart Search Suggestions**: Instant autocomplete for **States, Districts, and Towns** across India.
+- **Hybrid Data Source**: Combines local GeoJSON data with live **Nominatim (OpenStreetMap)** fallback for comprehensive town coverage.
 - **Interactive India Map**: Visualize national context with state-level highlighting.
 - **Regional Breakdown**: Dynamic district-level maps for every Indian state.
 - **Real-time Analytics**: Fetches live data from **Wikidata API** for:
@@ -14,9 +16,10 @@ A modern, interactive web application to generate beautiful prayer bulletins wit
   - Literacy Rates
   - Religious Demographics (%)
   - Head of Government (Chief Minister)
+- **Premium Bulletin Design**: High-end "paper-vibe" layout optimized for professional PDF export.
+- **Automatic Prayer Points**: Intelligent generation of region-specific prayer focus points.
 - **Local Disk Caching**: Optimized performance using a local file-based cache for state data.
-- **PDF Generation**: High-quality PDF export of the generated bulletin using `html2canvas-pro` and `jsPDF`.
-- **Responsive Design**: Premium aesthetics with Tailwind CSS v4 and Glassmorphism effects.
+- **High-Quality PDF Export**: One-click generation of professional bulletins using `html2canvas-pro` and `jsPDF`.
 
 ## 🚀 Getting Started
 

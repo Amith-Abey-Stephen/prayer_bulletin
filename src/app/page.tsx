@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import SearchSuggestions from "@/components/SearchSuggestions";
 
 export default function Home() {
   const [location, setLocation] = useState("");
@@ -50,6 +51,14 @@ export default function Home() {
                   className="block w-full pl-11 pr-4 py-4 text-base border border-slate-200 rounded-xl bg-slate-50 text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all outline-none placeholder:text-slate-400 shadow-sm"
                   placeholder="e.g., Maharashtra, Mumbai, Delhi..."
                   required
+                  autoComplete="off"
+                />
+                <SearchSuggestions 
+                  value={location} 
+                  onSelect={(name) => {
+                    setLocation(name);
+                    // Optionally trigger search immediately or just let them click Search
+                  }} 
                 />
               </div>
             </div>
