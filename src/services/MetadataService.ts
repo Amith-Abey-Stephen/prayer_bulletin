@@ -135,29 +135,33 @@ export class MetadataService {
     const religions: ReligionData = {};
     if (!itemId) return religions;
 
-    const bindings = await this.sparqlFetch(`
-      SELECT ?religionLabel ?proportion ?percentage WHERE {
-        wd:${itemId} p:P140 ?relStatement.
-        ?relStatement ps:P140 ?rel.
-        OPTIONAL { ?relStatement pq:P1107 ?proportion. }
-        OPTIONAL { ?relStatement pq:P1108 ?percentage. }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-      }
-    `);
+    try {
+      const bindings = await this.sparqlFetch(`
+        SELECT ?religionLabel ?proportion ?percentage WHERE {
+          wd:${itemId} p:P140 ?relStatement.
+          ?relStatement ps:P140 ?rel.
+          OPTIONAL { ?relStatement pq:P1107 ?proportion. }
+          OPTIONAL { ?relStatement pq:P1108 ?percentage. }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+      `);
 
-    if (bindings) {
-      for (const b of bindings) {
-        const label = b.religionLabel?.value?.toLowerCase();
-        if (!label) continue;
-        const raw = b.proportion
-          ? parseFloat(b.proportion.value)
-          : b.percentage
-          ? parseFloat(b.percentage.value) / 100
-          : null;
-        if (raw !== null) {
-          religions[label] = raw * 100;
+      if (bindings) {
+        for (const b of bindings) {
+          const label = b.religionLabel?.value?.toLowerCase();
+          if (!label) continue;
+          const raw = b.proportion
+            ? parseFloat(b.proportion.value)
+            : b.percentage
+            ? parseFloat(b.percentage.value) / 100
+            : null;
+          if (raw !== null) {
+            religions[label] = raw * 100;
+          }
         }
       }
+    } catch (err) {
+      console.error(`[MetadataService] Error fetching religion data for ${itemId}:`, err);
     }
     return religions;
   }
@@ -206,7 +210,7 @@ export class MetadataService {
   static async fetchStateFromWikidata(stateName: string): Promise<LocationMetadata | null> {
     console.log(`[MetadataService] Fetching: ${stateName}`);
 
-    // Step 1: Try Wikidata
+    // Step 1: Try Wikidata for main info
     const bindings = await this.sparqlFetch(`
       SELECT ?state ?capitalLabel ?population ?area ?literacy ?headLabel ?partyLabel ?demographics
       WHERE {
@@ -233,29 +237,41 @@ export class MetadataService {
 
     const result = bindings?.[0] ?? null;
 
-    // Step 2: If Wikidata fails, use AI
+    // Step 2: If Wikidata fails completely, use AI as primary source
     if (!result) {
       console.log(`[MetadataService] Wikidata empty for ${stateName}, using AI fallback`);
       return this.fetchFromAI(stateName);
     }
 
-    // Step 3: Wikidata succeeded — enrich with religion, cities, AI supplements
+    // Step 3: Wikidata succeeded — fetch sub-data in parallel
     try {
       const stateId = result.state?.value?.split('/')?.pop() ?? '';
       const demoId = result.demographics?.value?.split('/')?.pop() ?? '';
 
-      let religion = await this.fetchReligionData(stateId);
-      if (Object.keys(religion).length === 0 && demoId) {
-        religion = await this.fetchReligionData(demoId);
-      }
+      // Parallel sub-fetches
+      const [religion1, religion2, religion3, majorCities] = await Promise.all([
+        this.fetchReligionData(stateId),
+        demoId ? this.fetchReligionData(demoId) : Promise.resolve({}),
+        this.fetchReligionLabels(stateId),
+        this.fetchMajorCities(stateId)
+      ]);
+
+      // Combine religion data
+      let religion = Object.keys(religion1).length > 0 ? religion1 : religion2;
       if (Object.keys(religion).length === 0) {
-        religion = await this.fetchReligionLabels(stateId);
+        religion = religion3;
       }
 
-      const majorCities = await this.fetchMajorCities(stateId);
-      const ai = await this.fetchFromAI(stateName);
+      // Check if we have enough data or need AI supplement
+      const hasBasicData = result.population && result.area && result.literacy && Object.keys(religion).length > 0;
+      
+      let ai: LocationMetadata | null = null;
+      if (!hasBasicData) {
+        console.log(`[MetadataService] Wikidata missing some fields for ${stateName}, fetching AI supplement...`);
+        ai = await this.fetchFromAI(stateName);
+      }
 
-      // Merge Wikidata + AI — no hardcoded guesses
+      // Merge Wikidata + AI
       const finalLiteracy = result.literacy
         ? parseFloat(result.literacy.value) * (parseFloat(result.literacy.value) < 1 ? 100 : 1)
         : ai?.literacy ?? undefined;
@@ -274,27 +290,75 @@ export class MetadataService {
           ? parseInt(result.population.value)
           : ai?.population ?? undefined,
         area: result.area ? parseFloat(result.area.value) : ai?.area ?? undefined,
-        literacy: finalLiteracy ?? ai?.literacy ?? undefined,
-        governmentHead: result.headLabel?.value ?? undefined,
+        literacy: finalLiteracy,
+        governmentHead: result.headLabel?.value ?? ai?.governmentHead ?? undefined,
         governmentParty: finalParty,
-        religion:
-          Object.keys(finalReligion).length > 0
-            ? finalReligion
-            : (ai?.religion ?? {}),
+        religion: finalReligion,
         majorCities: majorCities.length > 0 ? majorCities : (ai?.majorCities ?? []),
         lastUpdated: new Date().toISOString(),
       };
     } catch (err) {
       console.error(`[MetadataService] Error processing Wikidata result for ${stateName}:`, err);
-      // Final fallback: just return AI data
       return this.fetchFromAI(stateName);
     }
   }
 
   static async fetchDistrictFromWikidata(
     districtName: string,
-    _stateName: string
+    stateName: string
   ): Promise<LocationMetadata | null> {
+    console.log(`[MetadataService] Fetching District: ${districtName} in ${stateName}`);
+
+    // Try a more specific query for districts to avoid ambiguity
+    const bindings = await this.sparqlFetch(`
+      SELECT ?dist ?capitalLabel ?population ?area ?literacy ?headLabel ?partyLabel
+      WHERE {
+        ?dist wdt:P17 wd:Q668;
+              (wdt:P31 wd:Q1149652 | wdt:P31 wd:Q11701 | wdt:P31 wd:Q2140); # District, State, or Administrative unit
+              rdfs:label "${districtName}"@en.
+        
+        # Try to link to state to ensure correct district
+        ?dist wdt:P131* ?state.
+        ?state rdfs:label "${stateName}"@en.
+
+        OPTIONAL { ?dist wdt:P36 ?capital. }
+        OPTIONAL { ?dist wdt:P1082 ?population. }
+        OPTIONAL { ?dist wdt:P2046 ?area. }
+        OPTIONAL { ?dist wdt:P2744 ?literacy. }
+        
+        SERVICE wikibase:label {
+          bd:serviceParam wikibase:language "en".
+          ?capital rdfs:label ?capitalLabel.
+        }
+      } LIMIT 1
+    `);
+
+    if (bindings && bindings[0]) {
+      const result = bindings[0];
+      const distId = result.dist?.value?.split('/')?.pop() ?? '';
+      
+      const [religion, majorCities] = await Promise.all([
+        this.fetchReligionData(distId),
+        this.fetchMajorCities(distId)
+      ]);
+
+      const finalLiteracy = result.literacy
+        ? parseFloat(result.literacy.value) * (parseFloat(result.literacy.value) < 1 ? 100 : 1)
+        : undefined;
+
+      return {
+        name: districtName,
+        capital: result.capitalLabel?.value,
+        population: result.population ? parseInt(result.population.value) : undefined,
+        area: result.area ? parseFloat(result.area.value) : undefined,
+        literacy: finalLiteracy,
+        religion: religion,
+        majorCities: majorCities,
+        lastUpdated: new Date().toISOString(),
+      };
+    }
+
+    // Fallback to the generic state fetcher if the specific one fails
     return this.fetchStateFromWikidata(districtName);
   }
 

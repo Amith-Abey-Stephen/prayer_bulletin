@@ -28,8 +28,30 @@ const StatCard = ({ label, value, icon, color = "blue" }: { label: string; value
       </div>
       <div>
         <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">{label}</p>
-        <p className="text-base font-bold text-slate-800 leading-tight">{value}</p>
+        <p className="text-base font-bold text-slate-800 leading-tight">{value || "---"}</p>
       </div>
+    </div>
+  );
+};
+
+const FetchTimer = ({ label }: { label: string }) => {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSeconds(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-3 bg-blue-50/50 px-3 py-1.5 rounded-full border border-blue-100/50">
+      <div className="relative flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+      </div>
+      <p className="text-[10px] font-black text-blue-700 uppercase tracking-widest whitespace-nowrap">
+        Fetching {label}... <span className="font-mono text-xs ml-1">{seconds}s</span>
+      </p>
     </div>
   );
 };
@@ -44,6 +66,7 @@ function BulletinContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [districtsSummary, setDistrictsSummary] = useState<any[]>([]);
+  const [loadingDistricts, setLoadingDistricts] = useState<string[]>([]);
   const [allDistrictNames, setAllDistrictNames] = useState<string[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const [digitalId, setDigitalId] = useState("");
@@ -114,51 +137,62 @@ function BulletinContent() {
             .replace(/([a-z])(and)([A-Z])/g, '$1 $2 $3')
             .replace(/([A-Z])(and)([A-Z])/g, '$1 $2 $3');
           
+          // 1. Fetch State Data first
           const res = await fetch(`/api/state-data?name=${encodeURIComponent(normalizedState)}&type=states`);
           const data = await res.json();
           
           if (!data.error) {
-            // If we have a district, try to overlay its data
+            let combinedData = { ...data };
+
+            // 2. If we have a district, try to overlay its data immediately
             if (matchedDistrict) {
               const dRes = await fetch(`/api/state-data?name=${encodeURIComponent(matchedDistrict)}&type=districts&parent=${encodeURIComponent(normalizedState)}`);
               const dData = await dRes.json();
               if (!dData.error) {
-                setStateData((prev: any) => ({ 
-                  ...data, 
-                  ...dData, 
-                  source: dData.source,
-                  totalDistricts: prev?.totalDistricts // Keep the district count we calculated
-                }));
-              } else {
-                setStateData((prev: any) => ({ ...data, totalDistricts: prev?.totalDistricts }));
+                combinedData = { ...combinedData, ...dData, source: dData.source };
               }
-            } else {
-              setStateData((prev: any) => ({ ...data, totalDistricts: prev?.totalDistricts }));
             }
 
-            // Fetch district summaries
+            setStateData((prev: any) => ({ 
+              ...combinedData, 
+              totalDistricts: prev?.totalDistricts 
+            }));
+            
+            // Set data loading to false once the main state/district data is in
+            setIsDataLoading(false);
+
+            // 3. Fetch district summaries in the background
             let targets: string[] = [];
             if (matchedDistrict) {
-              // Mode 1: Specific place searched - show only that district
-              targets = [matchedDistrict];
+              targets = []; 
             } else if (allDistrictNames.length > 0) {
-              // Mode 2: State searched - show all (limited to top 6 for performance)
-              targets = allDistrictNames.slice(0, 6);
+              targets = allDistrictNames.slice(0, 4);
             } else if (data.majorCities) {
-              targets = data.majorCities.slice(0, 4);
+              targets = data.majorCities.slice(0, 3);
             }
 
             if (targets.length > 0) {
-              const summaries = await Promise.all(targets.map(async (d: string) => {
-                const r = await fetch(`/api/state-data?name=${encodeURIComponent(d)}&type=districts&parent=${encodeURIComponent(normalizedState)}`);
-                return r.ok ? await r.json() : null;
-              }));
-              setDistrictsSummary(summaries.filter(s => s !== null && !s.error));
+              setLoadingDistricts(targets);
+              // Fetch summaries one by one to avoid rate limits
+              for (const d of targets) {
+                try {
+                  const r = await fetch(`/api/state-data?name=${encodeURIComponent(d)}&type=districts&parent=${encodeURIComponent(normalizedState)}`);
+                  if (r.ok) {
+                    const dSum = await r.json();
+                    if (!dSum.error) {
+                      setDistrictsSummary(prev => [...prev, dSum]);
+                    }
+                  }
+                } catch (e) {
+                  console.error(`Error fetching summary for ${d}:`, e);
+                } finally {
+                  setLoadingDistricts(prev => prev.filter(name => name !== d));
+                }
+              }
             }
           }
         } catch (e) {
           console.error("Error fetching state data:", e);
-        } finally {
           setIsDataLoading(false);
         }
       };
@@ -331,7 +365,7 @@ function BulletinContent() {
                 <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">02</span>
                 Summary Details: {matchedState || location}
               </h2>
-              {isDataLoading && <div className="animate-pulse text-[10px] text-blue-600 font-black uppercase tracking-widest">Live Fetching...</div>}
+              {isDataLoading && <FetchTimer label={matchedState || location} />}
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -411,7 +445,7 @@ function BulletinContent() {
           </div>
 
           {/* Section 04: District-by-District Summary */}
-          {matchedState && districtsSummary.length > 0 && (
+          {matchedState && (districtsSummary.length > 0 || loadingDistricts.length > 0) && (
             <div className="space-y-12">
               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">04</span>
@@ -420,7 +454,7 @@ function BulletinContent() {
               
               <div className="space-y-16">
                 {districtsSummary.map((dist, i) => (
-                  <div key={i} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700" style={{ animationDelay: `${i * 150}ms` }}>
+                  <div key={i} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                     <div className="flex items-center gap-4">
                       <div className="h-[1px] flex-grow bg-slate-100"></div>
                       <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-3">
@@ -480,6 +514,27 @@ function BulletinContent() {
                           )}
                         </div>
                       </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Loading placeholders for districts */}
+                {loadingDistricts.map((name, i) => (
+                  <div key={`loading-${name}`} className="space-y-8 animate-pulse opacity-60">
+                    <div className="flex items-center gap-4">
+                      <div className="h-[1px] flex-grow bg-slate-100"></div>
+                      <div className="flex flex-col items-center gap-2">
+                        <h3 className="text-xl font-black text-slate-300 tracking-tight">{name}</h3>
+                        <FetchTimer label={name} />
+                      </div>
+                      <div className="h-[1px] flex-grow bg-slate-100"></div>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="h-24 bg-slate-50 rounded-xl"></div>
+                      <div className="h-24 bg-slate-50 rounded-xl"></div>
+                      <div className="h-24 bg-slate-50 rounded-xl"></div>
+                      <div className="col-span-2 h-32 bg-slate-50 rounded-xl"></div>
+                      <div className="h-32 bg-slate-50 rounded-xl"></div>
                     </div>
                   </div>
                 ))}
