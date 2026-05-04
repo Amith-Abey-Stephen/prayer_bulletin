@@ -6,10 +6,10 @@ import { getLocationMetadata } from '../../lib/location-service';
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 
 export interface ReligionData {
-  hindu?: number;
-  muslim?: number;
-  christian?: number;
-  [key: string]: number | undefined;
+  hindu?: number | null;
+  muslim?: number | null;
+  christian?: number | null;
+  [key: string]: number | null | undefined;
 }
 
 export interface LocationMetadata {
@@ -85,48 +85,50 @@ export class MetadataService {
     }
   }
 
-  // ─── AI-only fetch (fast fallback, always returns something) ────────────────
-  private static async fetchFromAI(locationName: string): Promise<LocationMetadata | null> {
+  private static async fetchFromAI(locationName: string, type: 'states' | 'districts' | 'towns' = 'states'): Promise<LocationMetadata | null> {
     try {
-      const ai = await getLocationMetadata(locationName, 'states');
+      console.log(`[MetadataService] AI Fetching (${type}): ${locationName}`);
+      const ai = await getLocationMetadata(locationName, type);
       if (!ai) return null;
+      
       return {
         name: locationName,
-        capital: ai.capital,
+        capital: ai.capital === "Unknown" ? undefined : ai.capital,
         population: ai.population || undefined,
         area: ai.area || undefined,
         literacy: ai.literacy || undefined,
         governmentHead: undefined,
-        governmentParty: ai.governmentParty || undefined,
-        religion: ai.religion
-          ? {
-              hinduism: ai.religion.hindu ?? undefined,
-              islam: ai.religion.muslim ?? undefined,
-              christianity: ai.religion.christian ?? undefined,
-            }
-          : {},
+        governmentParty: ai.rulingParty === "Unknown" ? undefined : ai.rulingParty || undefined,
+        religion: ai.religion || {},
         majorCities: ai.majorCities || [],
         lastUpdated: new Date().toISOString(),
       };
-    } catch {
+    } catch (err) {
+      console.error(`[MetadataService] AI Fallback failed for ${locationName}:`, err);
       return null;
     }
   }
 
-  // ─── Wikidata SPARQL helpers ─────────────────────────────────────────────────
   private static async sparqlFetch(query: string): Promise<any[] | null> {
     const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}&format=json`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
     try {
       const res = await fetch(url, {
         headers: {
           'User-Agent': 'PrayerBulletinGenerator/1.0',
           Accept: 'application/sparql-results+json',
         },
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (!res.ok) return null;
       const json = await res.json();
       return json.results?.bindings ?? null;
-    } catch {
+    } catch (err) {
+      clearTimeout(timeout);
+      console.error(`[MetadataService] SPARQL Fetch failed:`, err);
       return null;
     }
   }
@@ -206,96 +208,64 @@ export class MetadataService {
     return cities;
   }
 
-  // ─── Main fetch: Wikidata first, AI fallback ─────────────────────────────────
   static async fetchStateFromWikidata(stateName: string): Promise<LocationMetadata | null> {
-    console.log(`[MetadataService] Fetching: ${stateName}`);
+    console.log(`[MetadataService] Fetching State: ${stateName}`);
 
-    // Step 1: Try Wikidata for main info
-    const bindings = await this.sparqlFetch(`
-      SELECT ?state ?capitalLabel ?population ?area ?literacy ?headLabel ?partyLabel ?demographics
-      WHERE {
-        ?state wdt:P17 wd:Q668;
-               rdfs:label "${stateName}"@en.
-        OPTIONAL { ?state wdt:P36 ?capital. }
-        OPTIONAL { ?state wdt:P1082 ?population. }
-        OPTIONAL { ?state wdt:P2046 ?area. }
-        OPTIONAL { ?state wdt:P2744 ?literacy. }
-        OPTIONAL { ?state wdt:P6 ?head. }
-        OPTIONAL { ?head wdt:P102 ?party. }
-        OPTIONAL {
-          ?demographics wdt:P31 wd:Q1544839;
-                        wdt:P301 ?state.
-        }
-        SERVICE wikibase:label {
-          bd:serviceParam wikibase:language "en".
-          ?head rdfs:label ?headLabel.
-          ?party rdfs:label ?partyLabel.
-          ?capital rdfs:label ?capitalLabel.
-        }
-      } LIMIT 1
-    `);
-
-    const result = bindings?.[0] ?? null;
-
-    // Step 2: If Wikidata fails completely, use AI as primary source
-    if (!result) {
-      console.log(`[MetadataService] Wikidata empty for ${stateName}, using AI fallback`);
-      return this.fetchFromAI(stateName);
-    }
-
-    // Step 3: Wikidata succeeded — fetch sub-data in parallel
     try {
-      const stateId = result.state?.value?.split('/')?.pop() ?? '';
-      const demoId = result.demographics?.value?.split('/')?.pop() ?? '';
+      const bindings = await this.sparqlFetch(`
+        SELECT ?state ?capitalLabel ?population ?area ?literacy ?headLabel ?partyLabel
+        WHERE {
+          ?state wdt:P17 wd:Q668;
+                 (rdfs:label|skos:altLabel) "${stateName}"@en.
+          OPTIONAL { ?state wdt:P36 ?capital. }
+          OPTIONAL { ?state wdt:P1082 ?population. }
+          OPTIONAL { ?state wdt:P2046 ?area. }
+          OPTIONAL { ?state wdt:P2744 ?literacy. }
+          OPTIONAL { ?state wdt:P6 ?head. }
+          OPTIONAL { ?head wdt:P102 ?party. }
+          
+          SERVICE wikibase:label {
+            bd:serviceParam wikibase:language "en".
+            ?head rdfs:label ?headLabel.
+            ?party rdfs:label ?partyLabel.
+            ?capital rdfs:label ?capitalLabel.
+          }
+        } LIMIT 1
+      `);
 
-      // Parallel sub-fetches
-      const [religion1, religion2, religion3, majorCities] = await Promise.all([
-        this.fetchReligionData(stateId),
-        demoId ? this.fetchReligionData(demoId) : Promise.resolve({}),
-        this.fetchReligionLabels(stateId),
-        this.fetchMajorCities(stateId)
+      const aiPromise = this.fetchFromAI(stateName);
+
+      if (!bindings || bindings.length === 0) {
+        console.log(`[MetadataService] No Wikidata for ${stateName}, waiting for AI...`);
+        return await aiPromise;
+      }
+
+      const first = bindings[0];
+      const stateId = first.state?.value?.split('/')?.pop() ?? '';
+      
+      const [religion, cities, ai] = await Promise.all([
+        stateId ? this.fetchReligionData(stateId) : Promise.resolve({}),
+        stateId ? this.fetchMajorCities(stateId) : Promise.resolve([]),
+        aiPromise
       ]);
 
-      // Combine religion data
-      let religion = Object.keys(religion1).length > 0 ? religion1 : religion2;
-      if (Object.keys(religion).length === 0) {
-        religion = religion3;
-      }
-
-      // Check if we have enough data or need AI supplement
-      const hasBasicData = result.population && result.area && result.literacy && Object.keys(religion).length > 0;
-      
-      let ai: LocationMetadata | null = null;
-      if (!hasBasicData) {
-        console.log(`[MetadataService] Wikidata missing some fields for ${stateName}, fetching AI supplement...`);
-        ai = await this.fetchFromAI(stateName);
-      }
-
-      // Merge Wikidata + AI
-      const finalLiteracy = result.literacy
-        ? parseFloat(result.literacy.value) * (parseFloat(result.literacy.value) < 1 ? 100 : 1)
+      const finalLiteracy = first.literacy
+        ? parseFloat(first.literacy.value) * (parseFloat(first.literacy.value) < 1 ? 100 : 1)
         : ai?.literacy ?? undefined;
 
-      const finalReligion =
-        Object.keys(religion).length > 0
-          ? religion
-          : (ai?.religion ?? {});
-
-      const finalParty = result.partyLabel?.value ?? ai?.governmentParty ?? undefined;
+      const majorCities = cities.length > 0 ? cities : (ai?.majorCities ?? []);
 
       return {
         name: stateName,
-        capital: result.capitalLabel?.value ?? ai?.capital,
-        population: result.population
-          ? parseInt(result.population.value)
-          : ai?.population ?? undefined,
-        area: result.area ? parseFloat(result.area.value) : ai?.area ?? undefined,
+        capital: first.capitalLabel?.value ?? ai?.capital,
+        population: first.population ? parseInt(first.population.value) : ai?.population,
+        area: first.area ? parseFloat(first.area.value) : ai?.area,
         literacy: finalLiteracy,
-        governmentHead: result.headLabel?.value ?? ai?.governmentHead ?? undefined,
-        governmentParty: finalParty,
-        religion: finalReligion,
-        majorCities: majorCities.length > 0 ? majorCities : (ai?.majorCities ?? []),
-        lastUpdated: new Date().toISOString(),
+        governmentHead: first.headLabel?.value ?? ai?.governmentHead,
+        governmentParty: first.partyLabel?.value ?? ai?.governmentParty,
+        religion: Object.keys(religion).length > 0 ? religion : (ai?.religion ?? {}),
+        majorCities: majorCities,
+        lastUpdated: new Date().toISOString()
       };
     } catch (err) {
       console.error(`[MetadataService] Error processing Wikidata result for ${stateName}:`, err);
@@ -303,69 +273,97 @@ export class MetadataService {
     }
   }
 
-  static async fetchDistrictFromWikidata(
-    districtName: string,
-    stateName: string
-  ): Promise<LocationMetadata | null> {
+  static async fetchDistrictFromWikidata(districtName: string, stateName: string): Promise<LocationMetadata | null> {
     console.log(`[MetadataService] Fetching District: ${districtName} in ${stateName}`);
 
-    // Try a more specific query for districts to avoid ambiguity
-    const bindings = await this.sparqlFetch(`
-      SELECT ?dist ?capitalLabel ?population ?area ?literacy ?headLabel ?partyLabel
-      WHERE {
-        ?dist wdt:P17 wd:Q668;
-              (wdt:P31 wd:Q1149652 | wdt:P31 wd:Q11701 | wdt:P31 wd:Q2140); # District, State, or Administrative unit
-              rdfs:label "${districtName}"@en.
-        
-        # Try to link to state to ensure correct district
-        ?dist wdt:P131* ?state.
-        ?state rdfs:label "${stateName}"@en.
+    try {
+      const bindings = await this.sparqlFetch(`
+        SELECT ?dist ?capitalLabel ?population ?area ?literacy ?religionLabel ?proportion ?percentage ?cityLabel
+        WHERE {
+          ?dist wdt:P17 wd:Q668;
+                (wdt:P31 wd:Q2140 | wdt:P31 wd:Q1149652 | wdt:P31 wd:Q11701);
+                (rdfs:label|skos:altLabel) "${districtName}"@en.
+          
+          ?dist wdt:P131* ?state.
+          ?state rdfs:label "${stateName}"@en.
 
-        OPTIONAL { ?dist wdt:P36 ?capital. }
-        OPTIONAL { ?dist wdt:P1082 ?population. }
-        OPTIONAL { ?dist wdt:P2046 ?area. }
-        OPTIONAL { ?dist wdt:P2744 ?literacy. }
-        
-        SERVICE wikibase:label {
-          bd:serviceParam wikibase:language "en".
-          ?capital rdfs:label ?capitalLabel.
+          OPTIONAL { ?dist wdt:P36 ?capital. }
+          OPTIONAL { ?dist wdt:P1082 ?population. }
+          OPTIONAL { ?dist wdt:P2046 ?area. }
+          OPTIONAL { ?dist wdt:P2744 ?literacy. }
+          
+          # Religion
+          OPTIONAL {
+            ?dist p:P140 ?relStatement.
+            ?relStatement ps:P140 ?rel.
+            OPTIONAL { ?relStatement pq:P1107 ?proportion. }
+            OPTIONAL { ?relStatement pq:P1108 ?percentage. }
+            ?rel rdfs:label ?religionLabel.
+            FILTER(LANG(?religionLabel) = "en")
+          }
+
+          # Cities
+          OPTIONAL {
+            ?city wdt:P31 wd:Q515;
+                  wdt:P131 ?dist;
+                  rdfs:label ?cityLabel.
+            FILTER(LANG(?cityLabel) = "en")
+          }
+
+          SERVICE wikibase:label {
+            bd:serviceParam wikibase:language "en".
+            ?capital rdfs:label ?capitalLabel.
+          }
+        } LIMIT 50
+      `);
+
+      if (!bindings || bindings.length === 0) {
+        console.log(`[MetadataService] District search failed for ${districtName}, trying generic...`);
+        return this.fetchStateFromWikidata(districtName);
+      }
+
+      const first = bindings[0];
+      const religion: ReligionData = {};
+      const citiesSet = new Set<string>();
+
+      bindings.forEach(b => {
+        if (b.religionLabel?.value && (b.proportion || b.percentage)) {
+          const label = b.religionLabel.value.toLowerCase();
+          const val = b.proportion ? parseFloat(b.proportion.value) : parseFloat(b.percentage.value) / 100;
+          religion[label] = val * 100;
         }
-      } LIMIT 1
-    `);
+        if (b.cityLabel?.value) citiesSet.add(b.cityLabel.value);
+      });
 
-    if (bindings && bindings[0]) {
-      const result = bindings[0];
-      const distId = result.dist?.value?.split('/')?.pop() ?? '';
-      
-      const [religion, majorCities] = await Promise.all([
-        this.fetchReligionData(distId),
-        this.fetchMajorCities(distId)
-      ]);
-
-      const finalLiteracy = result.literacy
-        ? parseFloat(result.literacy.value) * (parseFloat(result.literacy.value) < 1 ? 100 : 1)
+      const majorCities = Array.from(citiesSet).slice(0, 5);
+      const finalLiteracy = first.literacy
+        ? parseFloat(first.literacy.value) * (parseFloat(first.literacy.value) < 1 ? 100 : 1)
         : undefined;
+
+      const hasBasicData = first.population && first.area && finalLiteracy && Object.keys(religion).length > 0;
+      let ai: LocationMetadata | null = null;
+      if (!hasBasicData) {
+        ai = await this.fetchFromAI(`${districtName}, ${stateName}`, 'districts');
+      }
 
       return {
         name: districtName,
-        capital: result.capitalLabel?.value,
-        population: result.population ? parseInt(result.population.value) : undefined,
-        area: result.area ? parseFloat(result.area.value) : undefined,
-        literacy: finalLiteracy,
-        religion: religion,
-        majorCities: majorCities,
+        capital: first.capitalLabel?.value ?? ai?.capital,
+        population: first.population ? parseInt(first.population.value) : ai?.population,
+        area: first.area ? parseFloat(first.area.value) : ai?.area,
+        literacy: finalLiteracy ?? ai?.literacy,
+        religion: Object.keys(religion).length > 0 ? religion : (ai?.religion ?? {}),
+        majorCities: majorCities.length > 0 ? majorCities : (ai?.majorCities ?? []),
         lastUpdated: new Date().toISOString(),
       };
+    } catch (err) {
+      console.error(`[MetadataService] Error processing district ${districtName}:`, err);
+      return this.fetchFromAI(`${districtName}, ${stateName}`, 'districts');
     }
-
-    // Fallback to the generic state fetcher if the specific one fails
-    return this.fetchStateFromWikidata(districtName);
   }
 
   static async fetchTownFromNominatim(townName: string): Promise<any | null> {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
-      townName + ', India'
-    )}&format=json&limit=1`;
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(townName + ', India')}&format=json&limit=1`;
     try {
       const res = await fetch(url, {
         headers: { 'User-Agent': 'PrayerBulletinGenerator/1.0' },
@@ -380,8 +378,8 @@ export class MetadataService {
           lastUpdated: new Date().toISOString(),
         };
       }
-    } catch {
-      console.error(`Error fetching Nominatim for ${townName}`);
+    } catch (err) {
+      console.error(`Error fetching Nominatim for ${townName}:`, err);
     }
     return null;
   }

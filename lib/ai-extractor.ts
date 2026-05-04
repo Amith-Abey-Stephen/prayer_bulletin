@@ -1,23 +1,23 @@
 // Using global fetch (Node >=18) – no external node-fetch needed
 import { z } from 'zod';
 
-// Schema for the expected structured metadata
+// Schema for the expected structured metadata with automatic coercion for numeric strings
 export const MetadataSchema = z.object({
-  name: z.string().default("Unknown"),
-  capital: z.string().default("Unknown"),
-  population: z.number().nullable().default(null),
-  area: z.number().nullable().default(null),
-  literacy: z.number().nullable().default(null),
+  name: z.string().nullable().transform(val => val ?? "Unknown").default("Unknown"),
+  capital: z.string().nullable().transform(val => val ?? "Unknown").default("Unknown"),
+  population: z.coerce.number().nullable().catch(null).default(null),
+  area: z.coerce.number().nullable().catch(null).default(null),
+  literacy: z.coerce.number().nullable().catch(null).default(null),
   religion: z.object({
-    hindu: z.number().nullable().default(null),
-    muslim: z.number().nullable().default(null),
-    christian: z.number().nullable().default(null)
+    hindu: z.coerce.number().nullable().catch(null).default(null),
+    muslim: z.coerce.number().nullable().catch(null).default(null),
+    christian: z.coerce.number().nullable().catch(null).default(null)
   }).default({ hindu: null, muslim: null, christian: null }),
-  governmentParty: z.string().nullable().default(null),
-  majorCities: z.array(z.string()).default([]),
+  rulingParty: z.string().nullable().default(null),
+  majorCities: z.array(z.string()).nullable().transform(val => val ?? []).default([]),
   coordinates: z.object({
-    lat: z.number().nullable().default(null),
-    lng: z.number().nullable().default(null)
+    lat: z.coerce.number().nullable().catch(null).default(null),
+    lng: z.coerce.number().nullable().catch(null).default(null)
   }).default({ lat: null, lng: null })
 });
 
@@ -26,120 +26,128 @@ type Metadata = z.infer<typeof MetadataSchema>;
 // Simple in‑memory cache
 const cache = new Map<string, Metadata>();
 
+// Round-robin index for API key rotation
+let keyIndex = 0;
+
 /**
- * Sends raw source text to the GLM‑4.5 Air model and returns validated metadata.
- * The model is forced to respond with strict JSON matching MetadataSchema.
+ * Returns the next API key in a round-robin fashion from the environment variable.
+ */
+function getNextApiKey(): string {
+  const rawKeys = process.env.OPENROUTER_API_KEY || "";
+  const cleanKeys = rawKeys
+    .replace(/[\[\]]/g, "")
+    .split(",")
+    .map(k => k.trim())
+    .filter(k => k);
+  
+  if (cleanKeys.length === 0) throw new Error('OPENROUTER_API_KEY is not set or empty');
+  
+  const key = cleanKeys[keyIndex % cleanKeys.length];
+  keyIndex++;
+  return key;
+}
+
+/**
+ * Sends raw source text to a fast Flash model and returns validated metadata.
  */
 export async function extractMetadata(sourceText: string, cacheKey: string): Promise<Metadata> {
-  // Return cached result if present
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error('OPENROUTER_API_KEY is not set');
+  const apiKey = getNextApiKey();
 
+  // Use Gemini 2.0 Flash Lite for ultra-fast, high-quality extraction
   const payload = {
-    model: 'z-ai/glm-4.5-air:free',
-    temperature: 0,
-    top_p: 0.1,
+    model: 'google/gemini-2.0-flash-001',
+    temperature: 0.1,
+    response_format: { type: 'json_object' },
     messages: [
       { 
-        role: 'system', 
-        content: 'You are a strict metadata extraction engine. Output ONLY valid JSON matching the user-specified schema. No markdown, no explanations, no preamble.' 
+        content: `You are a high-speed metadata extraction engine specialized in Indian geography.
+Extract location details into JSON format. 
+LOCATION CONTEXT: All locations are in India.
+Schema:
+{
+  "name": string,
+  "capital": string,
+  "population": number,
+  "area": number (in km2),
+  "literacy": number (percentage 0-100),
+  "religion": { "hindu": number, "muslim": number, "christian": number },
+  "rulingParty": string,
+  "majorCities": string[],
+  "coordinates": { "lat": number, "lng": number }
+}
+Rules:
+- Use provided sources as the primary authority. 
+- If information is MISSING from sources (especially for Literacy Rate and Religion), use your internal knowledge (e.g., 2011 Census or recent reliable estimates) to provide the most accurate data for this location.
+- For population/area, extract numeric values (convert Cr/Lakhs to full numbers).
+- For religion/literacy, return numbers between 0 and 100. Always provide an estimate for Hindu, Muslim, and Christian populations in India.
+- For rulingParty, ONLY extract the name of the political party (e.g., BJP, INC, CPI(M), AAP, etc.). NEVER return a country name.
+- Return exactly ONE JSON object representing the location.
+- Return ONLY the JSON object.` 
       },
-      { role: 'user', content: sourceText }
+      { role: 'user', content: `TARGET LOCATION: ${cacheKey}\n\nExtract data from these sources:\n${sourceText.slice(0, 6000)}` }
     ]
   };
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000); // Faster 15s timeout
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenRouter request failed with ${response.status}: ${errorText}`);
-  }
-
-  const data = await response.json();
-  let raw = data?.choices?.[0]?.message?.content?.trim();
-  if (!raw) {
-    throw new Error('No content returned from model');
-  }
-
-  // Robust JSON extraction: Handle markdown blocks if present
-  if (raw.includes('```')) {
-    const match = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (match) {
-      raw = match[1];
-    }
-  }
-
-  const jsonStart = raw.indexOf('{');
-  const jsonEnd = raw.lastIndexOf('}') + 1;
-  
-  if (jsonStart === -1 || jsonEnd === 0) {
-    throw new Error('No JSON object found in model response');
-  }
-
-  const jsonString = raw.slice(jsonStart, jsonEnd);
-
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonString);
-  } catch (e) {
-    console.error('Raw content that failed parsing:', raw);
-    throw new Error('Model returned malformed JSON');
-  }
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://prayer-bulletin.org', // Optional but good for OpenRouter
+        'X-Title': 'Prayer Bulletin Generator'
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
 
-  // Pre-process data to handle AI "hallucinations" of types (e.g. string instead of number, or objects for simple values)
-  const sanitize = (val: any): any => {
-    if (val === null || val === undefined) return null;
-    if (typeof val === 'number') return val;
-    if (typeof val === 'string') {
-      // Remove commas and try to parse
-      const cleaned = val.replace(/,/g, '');
-      const num = Number(cleaned);
-      return isNaN(num) ? null : num;
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenRouter failed (${response.status}): ${errorText}`);
     }
-    if (typeof val === 'object') {
-      // If it's an object like { value: 123 }, extract the value
-      if ('value' in val) return sanitize(val.value);
-      // If it's an array, keep as is
-      if (Array.isArray(val)) return val.map(sanitize);
-      // Otherwise keep as object
-      return val;
+
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content;
+    
+    if (!content) throw new Error('Empty response from model');
+
+    const parsed = JSON.parse(content);
+    
+    // Handle case where model returns an array of objects instead of one
+    const normalizedParsed = Array.isArray(parsed) ? (parsed[0] || {}) : parsed;
+
+    // Clean and validate
+    const result = MetadataSchema.safeParse(normalizedParsed);
+    if (!result.success) {
+      console.error('Validation Error:', result.error.format());
+      try {
+        // Return a partial object with guaranteed name/capital to avoid total failure
+        return MetadataSchema.parse({ 
+          name: typeof normalizedParsed.name === 'string' ? normalizedParsed.name : "Unknown",
+          capital: typeof normalizedParsed.capital === 'string' ? normalizedParsed.capital : "Unknown",
+          rulingParty: normalizedParsed.rulingParty || undefined,
+          religion: normalizedParsed.religion || {}
+        });
+      } catch (e) {
+        // Ultimate fallback
+        return MetadataSchema.parse({ name: "Unknown", capital: "Unknown" });
+      }
     }
-    return val;
-  };
 
-  // Clean up the parsed object before validation
-  const rawData = parsed as any;
-  const cleanedParsed = {
-    ...rawData,
-    population: sanitize(rawData.population),
-    area: sanitize(rawData.area),
-    literacy: sanitize(rawData.literacy),
-    religion: rawData.religion ? {
-      hindu: sanitize(rawData.religion.hindu),
-      muslim: sanitize(rawData.religion.muslim),
-      christian: sanitize(rawData.religion.christian)
-    } : undefined,
-    coordinates: rawData.coordinates ? {
-      lat: sanitize(rawData.coordinates.lat),
-      lng: sanitize(rawData.coordinates.lng)
-    } : undefined
-  };
-
-  const result = MetadataSchema.safeParse(cleanedParsed);
-  if (!result.success) {
-    throw new Error('Validation failed: ' + JSON.stringify(result.error.format()));
+    cache.set(cacheKey, result.data);
+    return result.data;
+  } catch (error) {
+    clearTimeout(timeout);
+    console.error(`AI Extraction Error [${cacheKey}]:`, error);
+    throw error;
   }
-
-  cache.set(cacheKey, result.data);
-  return result.data;
 }
+

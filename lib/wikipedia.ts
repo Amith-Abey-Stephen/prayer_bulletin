@@ -1,9 +1,10 @@
 /**
  * Fetch raw text extract from Wikipedia for a given location name.
- * Uses the REST API for simplicity.
+ * Uses the MediaWiki Query API to get a more comprehensive extract than the summary API.
  */
 export async function fetchWikipediaExtract(name: string): Promise<string> {
-  const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`;
+  // Use the query API for a longer extract
+  const url = `https://en.wikipedia.org/w/api.php?action=query&format=json&prop=extracts&exchars=4000&explaintext=1&titles=${encodeURIComponent(name)}&origin=*`;
   
   try {
     const response = await fetch(url, {
@@ -13,7 +14,14 @@ export async function fetchWikipediaExtract(name: string): Promise<string> {
     if (!response.ok) return "";
     
     const data = await response.json();
-    return data.extract || "";
+    const pages = data.query?.pages;
+    if (!pages) return "";
+    
+    // Get the first page's extract
+    const pageId = Object.keys(pages)[0];
+    if (pageId === "-1") return ""; // Page not found
+    
+    return pages[pageId].extract || "";
   } catch (e) {
     console.error(`Wikipedia fetch failed for ${name}:`, e);
     return "";

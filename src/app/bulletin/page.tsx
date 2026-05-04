@@ -166,27 +166,38 @@ function BulletinContent() {
             if (matchedDistrict) {
               targets = []; 
             } else if (allDistrictNames.length > 0) {
-              targets = allDistrictNames.slice(0, 4);
+              targets = allDistrictNames; // Load all districts
             } else if (data.majorCities) {
-              targets = data.majorCities.slice(0, 3);
+              targets = data.majorCities;
             }
 
             if (targets.length > 0) {
               setLoadingDistricts(targets);
-              // Fetch summaries one by one to avoid rate limits
-              for (const d of targets) {
-                try {
-                  const r = await fetch(`/api/state-data?name=${encodeURIComponent(d)}&type=districts&parent=${encodeURIComponent(normalizedState)}`);
-                  if (r.ok) {
-                    const dSum = await r.json();
-                    if (!dSum.error) {
-                      setDistrictsSummary(prev => [...prev, dSum]);
+              
+              // Process in small batches of 3 to stay within free tier limits while being faster
+              const batchSize = 3;
+              for (let i = 0; i < targets.length; i += batchSize) {
+                const batch = targets.slice(i, i + batchSize);
+                
+                await Promise.all(batch.map(async (d) => {
+                  try {
+                    const r = await fetch(`/api/state-data?name=${encodeURIComponent(d)}&type=districts&parent=${encodeURIComponent(normalizedState)}`);
+                    if (r.ok) {
+                      const dSum = await r.json();
+                      if (!dSum.error) {
+                        setDistrictsSummary(prev => [...prev, dSum]);
+                      }
                     }
+                  } catch (e) {
+                    console.error(`Error fetching summary for ${d}:`, e);
+                  } finally {
+                    setLoadingDistricts(prev => prev.filter(name => name !== d));
                   }
-                } catch (e) {
-                  console.error(`Error fetching summary for ${d}:`, e);
-                } finally {
-                  setLoadingDistricts(prev => prev.filter(name => name !== d));
+                }));
+                
+                // Smaller delay between batches
+                if (i + batchSize < targets.length) {
+                  await new Promise(resolve => setTimeout(resolve, 500));
                 }
               }
             }
@@ -358,11 +369,28 @@ function BulletinContent() {
             </div>
           </div>
 
-          {/* Section 2: State Analytics (The requested reorder) */}
+          {/* Section 2: Regional View (Next Map) */}
+          <div className="space-y-6">
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">02</span>
+              Regional Breakdown: {matchedState}
+            </h2>
+            <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-2xl bg-white p-4">
+              {matchedState ? (
+                <StateDistrictMap stateName={matchedState} highlightDistrict={matchedDistrict || undefined} />
+              ) : (
+                <div className="w-full h-full min-h-[400px] flex items-center justify-center bg-slate-50 italic text-slate-400 text-sm">
+                  Select a state to visualize districts
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 3: State Analytics */}
           <div className="space-y-8">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">02</span>
+                <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">03</span>
                 Summary Details: {matchedState || location}
               </h2>
               {isDataLoading && <FetchTimer label={matchedState || location} />}
@@ -416,7 +444,7 @@ function BulletinContent() {
                       <div key={rel} className="flex items-center gap-2">
                         <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
                         <span className="text-xs font-semibold text-slate-700 capitalize">{rel}:</span>
-                        <span className="text-xs font-bold text-slate-900">{val.toFixed(1)}%</span>
+                        <span className="text-xs font-bold text-slate-900">{(val !== null && typeof val === 'number') ? val.toFixed(1) : (val ?? "---")}%</span>
                       </div>
                     ))
                   ) : (
@@ -424,23 +452,6 @@ function BulletinContent() {
                   )}
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* Section 3: Regional View (Next Map) */}
-          <div className="space-y-6">
-            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">03</span>
-              Regional Breakdown: {matchedState}
-            </h2>
-            <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-2xl bg-white p-4">
-              {matchedState ? (
-                <StateDistrictMap stateName={matchedState} highlightDistrict={matchedDistrict || undefined} />
-              ) : (
-                <div className="w-full h-full min-h-[400px] flex items-center justify-center bg-slate-50 italic text-slate-400 text-sm">
-                  Select a state to visualize districts
-                </div>
-              )}
             </div>
           </div>
 
@@ -506,7 +517,7 @@ function BulletinContent() {
                             Object.entries(dist.religion).map(([rel, val]: [string, any]) => (
                               <div key={rel} className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold text-slate-600 capitalize">{rel}</span>
-                                <span className="text-[10px] font-black text-slate-900">{typeof val === 'number' ? val.toFixed(1) : val}%</span>
+                                <span className="text-[10px] font-black text-slate-900">{(val !== null && typeof val === 'number') ? val.toFixed(1) : (val ?? "---")}%</span>
                               </div>
                             ))
                           ) : (
