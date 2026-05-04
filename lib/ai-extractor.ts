@@ -13,8 +13,18 @@ export const MetadataSchema = z.object({
     muslim: z.coerce.number().nullable().catch(null).default(null),
     christian: z.coerce.number().nullable().catch(null).default(null)
   }).default({ hindu: null, muslim: null, christian: null }),
+  governmentHead: z.string().nullable().default(null),
   rulingParty: z.string().nullable().default(null),
-  majorCities: z.array(z.string()).nullable().transform(val => val ?? []).default([]),
+  majorCities: z.array(z.object({
+    name: z.string(),
+    lat: z.coerce.number(),
+    lng: z.coerce.number()
+  })).catch([]).default([]),
+  talukas: z.array(z.object({
+    name: z.string(),
+    lat: z.coerce.number(),
+    lng: z.coerce.number()
+  })).catch([]).default([]),
   coordinates: z.object({
     lat: z.coerce.number().nullable().catch(null).default(null),
     lng: z.coerce.number().nullable().catch(null).default(null)
@@ -74,8 +84,10 @@ Schema:
   "area": number (in km2),
   "literacy": number (percentage 0-100),
   "religion": { "hindu": number, "muslim": number, "christian": number },
-  "rulingParty": string,
-  "majorCities": string[],
+  "governmentHead": string (Current Chief Minister or Head),
+  "rulingParty": string (Current Ruling Political Party),
+  "majorCities": [{ "name": string, "lat": number, "lng": number }],
+  "talukas": [{ "name": string, "lat": number, "lng": number }],
   "coordinates": { "lat": number, "lng": number }
 }
 Rules:
@@ -84,6 +96,8 @@ Rules:
 - For population/area, extract numeric values (convert Cr/Lakhs to full numbers).
 - For religion/literacy, return numbers between 0 and 100. Always provide an estimate for Hindu, Muslim, and Christian populations in India.
 - For rulingParty, ONLY extract the name of the political party (e.g., BJP, INC, CPI(M), AAP, etc.). NEVER return a country name.
+- For majorCities, identify 3-5 key towns/cities and provide their REAL geographic coordinates.
+- For talukas, if the location is a DISTRICT, provide a list of 5-8 Talukas/Tehsils within that district with their approximate coordinates.
 - Return exactly ONE JSON object representing the location.
 - Return ONLY the JSON object.` 
       },
@@ -130,11 +144,13 @@ Rules:
       console.error('Validation Error:', result.error.format());
       try {
         // Return a partial object with guaranteed name/capital to avoid total failure
+        const ai = normalizedParsed as any;
         return MetadataSchema.parse({ 
-          name: typeof normalizedParsed.name === 'string' ? normalizedParsed.name : "Unknown",
-          capital: typeof normalizedParsed.capital === 'string' ? normalizedParsed.capital : "Unknown",
-          rulingParty: normalizedParsed.rulingParty || undefined,
-          religion: normalizedParsed.religion || {}
+          name: typeof ai.name === 'string' ? ai.name : "Unknown",
+          capital: typeof ai.capital === 'string' ? ai.capital : "Unknown",
+          governmentHead: ai.governmentHead === "Unknown" ? undefined : ai.governmentHead || undefined,
+          rulingParty: ai.rulingParty === "Unknown" ? undefined : ai.rulingParty || undefined,
+          religion: ai.religion || {}
         });
       } catch (e) {
         // Ultimate fallback

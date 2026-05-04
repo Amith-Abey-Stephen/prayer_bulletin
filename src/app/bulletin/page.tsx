@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useEffect, useState, Suspense, useRef } from "react";
-import { useSearchParams } from "next/navigation";
 import IndiaMap from "@/components/maps/IndiaMap";
 import StateDistrictMap from "@/components/maps/StateDistrictMap";
+import SearchSuggestions from "@/components/SearchSuggestions";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import html2canvas from "html2canvas-pro";
 import jsPDF from "jspdf";
 
@@ -58,6 +59,7 @@ const FetchTimer = ({ label }: { label: string }) => {
 
 function BulletinContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const location = searchParams.get("location") || "";
   
   const [matchedState, setMatchedState] = useState<string | null>(null);
@@ -163,11 +165,17 @@ function BulletinContent() {
 
             // 3. Fetch district summaries in the background
             let targets: string[] = [];
+            
+            // IF a specific district was matched, ONLY show that district
             if (matchedDistrict) {
-              targets = []; 
-            } else if (allDistrictNames.length > 0) {
-              targets = allDistrictNames; // Load all districts
-            } else if (data.majorCities) {
+              targets = [matchedDistrict];
+            } 
+            // IF it's a state search, show ALL districts in that state
+            else if (allDistrictNames.length > 0) {
+              targets = allDistrictNames;
+            } 
+            // Fallback to major cities if GeoJSON didn't provide districts
+            else if (data.majorCities) {
               targets = data.majorCities;
             }
 
@@ -266,6 +274,15 @@ function BulletinContent() {
     `Ask for strength and protection for the families and communities facing hardships.`,
     `Pray for the spiritual growth and unity among the various communities in ${matchedState}.`
   ];
+  const [searchLocation, setSearchLocation] = useState("");
+
+  const handleNewSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchLocation.trim()) {
+      router.push(`/bulletin?location=${encodeURIComponent(searchLocation.trim())}`);
+      setSearchLocation(""); // Clear after search
+    }
+  };
 
   if (!location) {
     return (
@@ -279,36 +296,71 @@ function BulletinContent() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-12">
       {/* Top Action Bar - Not part of PDF */}
-      <div className="mb-8 flex items-center justify-between no-print">
-        <Link href="/" className="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Search
-        </Link>
-        <button 
-          onClick={handleDownload}
-          disabled={isDownloading}
-          className={`font-bold py-2.5 px-6 rounded-lg transition-all shadow-md flex items-center gap-2 ${
-            isDownloading 
-              ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
-              : "bg-blue-600 hover:bg-blue-700 text-white"
-          }`}
-        >
-          {isDownloading ? (
-            <>
-              <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-              Preparing PDF...
-            </>
-          ) : (
-            <>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      <div className="sticky top-4 z-[100] no-print mb-12">
+        <div className="flex flex-col md:flex-row items-center gap-6 justify-between bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-slate-100 shadow-lg">
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-sm font-black text-slate-400 hover:text-blue-600 flex items-center gap-2 transition-all group">
+              <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-blue-50 group-hover:text-blue-600 transition-all">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </div>
+              <span className="uppercase tracking-widest text-[10px] hidden sm:inline">Back</span>
+            </Link>
+
+            <div className="h-8 w-[1px] bg-slate-100 hidden sm:block"></div>
+
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></div>
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 leading-none mb-1">Active Report</p>
+                <p className="text-sm font-black text-slate-900 tracking-tight leading-none truncate max-w-[150px]">
+                  {matchedDistrict || matchedState || location}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Search */}
+          <form onSubmit={handleNewSearch} className="flex-grow max-w-lg relative group">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <svg className="h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
               </svg>
-              Export as PDF
-            </>
-          )}
-        </button>
+            </div>
+            <input
+              type="text"
+              value={searchLocation}
+              onChange={(e) => setSearchLocation(e.target.value)}
+              className="block w-full pl-10 pr-4 py-2.5 text-xs font-bold border border-slate-100 rounded-xl bg-slate-50/50 text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all outline-none placeholder:text-slate-400"
+              placeholder="Quick search another location..."
+              autoComplete="off"
+            />
+            <SearchSuggestions 
+              value={searchLocation} 
+              onSelect={(name: string) => {
+                setSearchLocation(name);
+                router.push(`/bulletin?location=${encodeURIComponent(name)}`);
+                setSearchLocation("");
+              }} 
+            />
+          </form>
+
+          <button 
+            onClick={handleDownload}
+            disabled={isDownloading}
+            className={`font-black uppercase tracking-widest text-[10px] py-3 px-6 rounded-xl transition-all shadow-sm flex items-center gap-2 ${
+              isDownloading 
+                ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
+                : "bg-slate-900 text-white hover:bg-blue-600 hover:shadow-lg active:scale-95"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            {isDownloading ? "Generating..." : "Download PDF"}
+          </button>
+        </div>
       </div>
 
       {/* The Actual Bulletin - Designed for PDF */}
@@ -364,7 +416,7 @@ function BulletinContent() {
               <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">01</span>
               National Context (India)
             </h2>
-            <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-2xl bg-white p-4">
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
               <IndiaMap highlightState={matchedState || undefined} />
             </div>
           </div>
@@ -375,7 +427,7 @@ function BulletinContent() {
               <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">02</span>
               Regional Breakdown: {matchedState}
             </h2>
-            <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-2xl bg-white p-4">
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
               {matchedState ? (
                 <StateDistrictMap stateName={matchedState} highlightDistrict={matchedDistrict || undefined} />
               ) : (
@@ -456,14 +508,33 @@ function BulletinContent() {
           </div>
 
           {/* Section 04: District-by-District Summary */}
-          {matchedState && (districtsSummary.length > 0 || loadingDistricts.length > 0) && (
+          {matchedState && (
             <div className="space-y-12">
-              <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">04</span>
-                District-by-District Summary
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <span className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[10px]">04</span>
+                  District-by-District Summary
+                </h2>
+                {loadingDistricts.length > 0 && (
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-blue-600 animate-pulse">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+                    Discovering districts...
+                  </div>
+                )}
+              </div>
               
               <div className="space-y-16">
+                {districtsSummary.length === 0 && loadingDistricts.length > 0 && (
+                  <div className="py-20 text-center border-2 border-dashed border-slate-100 rounded-3xl">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 text-blue-600 mb-4 animate-bounce">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H5a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-bold text-slate-400">Compiling regional data for {matchedState}...</p>
+                  </div>
+                )}
+
                 {districtsSummary.map((dist, i) => (
                   <div key={i} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                     <div className="flex items-center gap-4">
@@ -474,55 +545,70 @@ function BulletinContent() {
                       </h3>
                       <div className="h-[1px] flex-grow bg-slate-100"></div>
                     </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                      <StatCard 
-                        label="Total Population" 
-                        value={formatNumber(dist.population)} 
-                        color="blue"
-                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
-                      />
-                      <StatCard 
-                        label="Area Coverage" 
-                        value={formatArea(dist.area)} 
-                        color="emerald"
-                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2 2 2 0 012 2v.684M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                      />
-                      <StatCard 
-                        label="Literacy Rate" 
-                        value={formatLiteracy(dist.literacy)} 
-                        color="indigo"
-                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>}
-                      />
-                      
-                      <div className="col-span-2 p-6 bg-slate-50/50 rounded-2xl border border-slate-100 flex flex-col justify-between">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-4">Key Urban Hubs & Centers</p>
-                        <div className="flex flex-wrap gap-2">
-                          {(dist.majorCities && dist.majorCities.length > 0) ? (
-                            dist.majorCities.map((town: string, ti: number) => (
-                              <span key={ti} className="px-3 py-1.5 bg-white text-slate-600 rounded-xl text-[10px] font-bold border border-slate-200 shadow-sm">
-                                {town}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-slate-400 italic">No urban center data identified</span>
-                          )}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+                      {/* Left Side: District Map */}
+                      <div className="md:col-span-4 rounded-2xl border border-slate-100 overflow-hidden bg-slate-50 p-2 shadow-sm">
+                        <div className="h-48 md:h-64">
+                          <StateDistrictMap 
+                            stateName={matchedState!} 
+                            highlightDistrict={dist.name} 
+                            zoomToDistrict={true}
+                            towns={dist.majorCities}
+                            talukas={dist.talukas}
+                          />
                         </div>
                       </div>
 
-                      <div className="p-6 bg-amber-50/50 rounded-2xl border border-amber-100">
-                        <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest mb-3">Religious Breakdown (%)</p>
-                        <div className="space-y-2">
-                          {dist.religion ? (
-                            Object.entries(dist.religion).map(([rel, val]: [string, any]) => (
-                              <div key={rel} className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-slate-600 capitalize">{rel}</span>
-                                <span className="text-[10px] font-black text-slate-900">{(val !== null && typeof val === 'number') ? val.toFixed(1) : (val ?? "---")}%</span>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-[10px] text-slate-400 italic">Detailed metrics pending...</p>
-                          )}
+                      {/* Right Side: District Stats */}
+                      <div className="md:col-span-8 grid grid-cols-2 lg:grid-cols-3 gap-4">
+                        <StatCard 
+                          label="Total Population" 
+                          value={formatNumber(dist.population)} 
+                          color="blue"
+                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
+                        />
+                        <StatCard 
+                          label="Area Coverage" 
+                          value={formatArea(dist.area)} 
+                          color="emerald"
+                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2 2 2 0 012 2v.684M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                        />
+                        <StatCard 
+                          label="Literacy Rate" 
+                          value={formatLiteracy(dist.literacy)} 
+                          color="indigo"
+                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>}
+                        />
+                        
+                        <div className="lg:col-span-2 p-6 bg-slate-50/50 rounded-2xl border border-slate-100 flex flex-col justify-between">
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-4">Key Urban Hubs & Centers</p>
+                          <div className="flex flex-wrap gap-2">
+                            {(dist.majorCities && dist.majorCities.length > 0) ? (
+                              dist.majorCities.map((town: string, ti: number) => (
+                                <span key={ti} className="px-3 py-1.5 bg-white text-slate-600 rounded-xl text-[10px] font-bold border border-slate-200 shadow-sm">
+                                  {town}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">No urban center data identified</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-6 bg-amber-50/50 rounded-2xl border border-amber-100">
+                          <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest mb-3">Religious Breakdown (%)</p>
+                          <div className="space-y-2">
+                            {dist.religion ? (
+                              Object.entries(dist.religion).map(([rel, val]: [string, any]) => (
+                                <div key={rel} className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold text-slate-600 capitalize">{rel}</span>
+                                  <span className="text-[10px] font-black text-slate-900">{(val !== null && typeof val === 'number') ? val.toFixed(1) : (val ?? "---")}%</span>
+                                </div>
+                              ))
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic text-center block py-2">Demographic breakdown unavailable</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -603,19 +689,19 @@ function BulletinContent() {
 export default function BulletinPage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <header className="bg-white border-b border-slate-200 py-4 shadow-sm sticky top-0 z-50">
+      <header className="bg-white border-b border-slate-100 py-6">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold italic text-xl">P</div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold italic text-xl shadow-lg shadow-blue-500/20">P</div>
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold leading-none">Generator</p>
-              <h2 className="text-lg font-bold text-blue-600 leading-none">Prayer Bulletin</h2>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-black leading-none mb-1">Prayer Department | AGDMC</p>
+              <h2 className="text-xl font-black text-slate-900 leading-none">Prayer Bulletin <span className="text-blue-600">Generator</span></h2>
             </div>
           </div>
         </div>
       </header>
-      
-      <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>}>
+
+      <Suspense fallback={null}>
         <BulletinContent />
       </Suspense>
       

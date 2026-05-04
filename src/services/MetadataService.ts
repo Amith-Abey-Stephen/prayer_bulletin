@@ -19,7 +19,8 @@ export interface LocationMetadata {
   area?: number;
   literacy?: number;
   religion?: ReligionData;
-  majorCities?: string[];
+  majorCities?: (string | { name: string; lat: number; lng: number })[];
+  talukas?: { name: string; lat: number; lng: number }[];
   governmentHead?: string;
   governmentParty?: string;
   lastUpdated: string;
@@ -97,10 +98,11 @@ export class MetadataService {
         population: ai.population || undefined,
         area: ai.area || undefined,
         literacy: ai.literacy || undefined,
-        governmentHead: undefined,
+        governmentHead: ai.governmentHead === "Unknown" ? undefined : ai.governmentHead || undefined,
         governmentParty: ai.rulingParty === "Unknown" ? undefined : ai.rulingParty || undefined,
         religion: ai.religion || {},
         majorCities: ai.majorCities || [],
+        talukas: ai.talukas || [],
         lastUpdated: new Date().toISOString(),
       };
     } catch (err) {

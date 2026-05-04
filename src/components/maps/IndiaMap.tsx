@@ -17,11 +17,11 @@ interface IndiaMapProps {
 
 const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
   return (
-    <div className="w-full h-[500px] md:h-[600px] bg-white rounded-2xl shadow-inner border border-slate-100 overflow-hidden">
+    <div className="w-full h-[500px] md:h-[600px] bg-white rounded-2xl border border-slate-200">
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{
-          scale: 1000,
+          scale: 850,
           center: [82, 22]
         }}
         style={{ width: "100%", height: "100%" }}

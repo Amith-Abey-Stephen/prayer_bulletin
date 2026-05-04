@@ -11,17 +11,21 @@ import { geoPath, geoMercator } from "d3-geo";
 import { STATE_CENTERS } from "@/data/mapConstants";
 
 const geoUrl = "/maps/india-level2.json";
-
 interface StateDistrictMapProps {
   stateName: string;
   highlightDistrict?: string;
+  zoomToDistrict?: boolean;
+  towns?: (string | { name: string; lat: number; lng: number })[];
+  talukas?: { name: string; lat: number; lng: number }[];
 }
 
-const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highlightDistrict }) => {
+const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highlightDistrict, zoomToDistrict, towns, talukas = [] }) => {
   const [mapConfig, setMapConfig] = useState<{ scale: number; center: [number, number] }>({
     scale: 8000,
     center: [82, 22]
   });
+
+  const [townMarkers, setTownMarkers] = useState<{ name: string; coordinates: [number, number]; type: 'town' | 'taluka' }[]>([]);
 
   useEffect(() => {
     async function calculateBounds() {
@@ -29,26 +33,30 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
         const response = await fetch(geoUrl);
         const data = await response.json();
         
-        const stateFeatures = data.features.filter((f: any) => 
+        // Filter features based on state, and optionally zoom to district
+        let features = data.features.filter((f: any) => 
           f.properties.NAME_1.replace(/\s+/g, "").toLowerCase() === stateName.replace(/\s+/g, "").toLowerCase()
         );
 
-        if (stateFeatures.length > 0) {
-          const featureCollection = { type: "FeatureCollection", features: stateFeatures };
-          
-          // Use d3 to calculate bounds in geographic coordinates
-          // We can't use path.bounds directly easily for scale without a projection
-          // So we do it manually on the coordinates
+        if (zoomToDistrict && highlightDistrict) {
+          const districtFeatures = features.filter((f: any) => 
+            f.properties.NAME_2.toLowerCase().replace(/\s+/g, "").includes(highlightDistrict.toLowerCase().replace(/\s+/g, ""))
+          );
+          if (districtFeatures.length > 0) {
+            features = districtFeatures;
+          }
+        }
+
+        if (features.length > 0) {
           let minLon = 180, maxLon = -180, minLat = 90, maxLat = -90;
           
-          stateFeatures.forEach((f: any) => {
+          features.forEach((f: any) => {
             const coords = f.geometry.type === "Polygon" 
               ? [f.geometry.coordinates] 
               : f.geometry.coordinates;
               
             coords.forEach((ring: any) => {
               ring.forEach((subRing: any) => {
-                // GeoJSON can be nested differently depending on MultiPolygon
                 const points = Array.isArray(subRing[0]) ? subRing : ring;
                 points.forEach(([lon, lat]: [number, number]) => {
                   if (lon < minLon) minLon = lon;
@@ -63,21 +71,54 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
           const centerLon = (minLon + maxLon) / 2;
           const centerLat = (minLat + maxLat) / 2;
           
-          // Calculate appropriate scale
-          // Map height is approx 600-800px. 1 degree lat is ~111km.
-          // Mercator scale 1000 is ~30 degrees.
-          // We want the state to take up ~80% of the view.
           const latDiff = maxLat - minLat;
           const lonDiff = (maxLon - minLon) * Math.cos(centerLat * Math.PI / 180);
           const maxDiff = Math.max(latDiff, lonDiff);
           
-          // This constant is a bit of trial and error but ~150000 / maxDiff usually works well for 800px
-          const calculatedScale = Math.min(25000, (60000 / (maxDiff || 1)) * 0.75);
+          // Scale factor is much higher for district zoom
+          const viewSize = zoomToDistrict ? 350000 : 60000;
+          const calculatedScale = Math.min(zoomToDistrict ? 80000 : 25000, (viewSize / (maxDiff || 1)) * 0.65);
 
           setMapConfig({
             scale: calculatedScale,
             center: [centerLon, centerLat]
           });
+
+          // Extract town and taluka coordinates
+          const markers: { name: string; coordinates: [number, number]; type: 'town' | 'taluka' }[] = [];
+          
+          if (towns && towns.length > 0) {
+            towns.forEach((town) => {
+              if (typeof town === 'object' && town.lat && town.lng) {
+                markers.push({
+                  name: town.name,
+                  coordinates: [town.lng, town.lat] as [number, number],
+                  type: 'town'
+                });
+              } else {
+                markers.push({
+                  name: typeof town === 'string' ? town : town.name,
+                  coordinates: [
+                    centerLon + (Math.random() - 0.5) * (maxLon - minLon) * 0.4,
+                    centerLat + (Math.random() - 0.5) * (maxLat - minLat) * 0.4
+                  ] as [number, number],
+                  type: 'town'
+                });
+              }
+            });
+          }
+
+          if (talukas && talukas.length > 0) {
+            talukas.forEach((taluka) => {
+              markers.push({
+                name: taluka.name,
+                coordinates: [taluka.lng, taluka.lat] as [number, number],
+                type: 'taluka'
+              });
+            });
+          }
+
+          setTownMarkers(markers);
         }
       } catch (e) {
         console.error("Error calculating map bounds:", e);
@@ -85,32 +126,10 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
     }
 
     calculateBounds();
-  }, [stateName]);
+  }, [stateName, highlightDistrict, zoomToDistrict, towns]);
 
   return (
-    <div className="w-full h-[600px] md:h-[800px] bg-slate-50 rounded-[3rem] border border-slate-200 overflow-hidden relative shadow-[inset_0_2px_10px_rgba(0,0,0,0.05)]">
-      {/* Premium Background Pattern */}
-      <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
-        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <pattern id="map-grid" width="30" height="30" patternUnits="userSpaceOnUse">
-              <path d="M 30 0 L 0 0 0 30" fill="none" stroke="currentColor" strokeWidth="0.5"/>
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#map-grid)" />
-        </svg>
-      </div>
-
-      <div className="absolute top-8 right-8 z-10 bg-white/90 backdrop-blur-xl px-6 py-3 rounded-3xl border border-slate-200/50 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-none mb-1">State Analysis</p>
-            <p className="text-lg font-black text-slate-900 tracking-tight leading-none text-right">{stateName}</p>
-          </div>
-        </div>
-      </div>
-
+    <div className="w-full h-full min-h-[300px] bg-slate-50 rounded-2xl relative border border-slate-200">
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{
@@ -134,7 +153,6 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
                 const isHighlighted = highlightDistrict && 
                   districtName.toLowerCase().replace(/\s+/g, "").includes(highlightDistrict.toLowerCase().replace(/\s+/g, ""));
                 
-                // Calculate centroid using d3-geo
                 const centroid = geoPath().centroid(geo);
                 const [x, y] = projection(centroid) || [0, 0];
 
@@ -142,41 +160,65 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
                   <React.Fragment key={geo.rsmKey}>
                     <Geography
                       geography={geo}
-                      fill={isHighlighted ? "#2563eb" : "#FFFFFF"}
-                      stroke={isHighlighted ? "#1d4ed8" : "#CBD5E1"}
-                      strokeWidth={isHighlighted ? 1 : 0.5}
+                      fill={isHighlighted ? "#EFF6FF" : "#FFFFFF"}
+                      stroke={isHighlighted ? "#2563eb" : "#E2E8F0"}
+                      strokeWidth={isHighlighted ? 3 : 0.5}
                       style={{
                         default: { outline: "none" },
                         hover: { fill: "#EFF6FF", stroke: "#3B82F6", outline: "none" },
                         pressed: { fill: "#2563eb", outline: "none" },
                       }}
                     />
-                    {/* District Label */}
-                    <g className="pointer-events-none">
-                      <text
-                        x={x}
-                        y={y}
-                        textAnchor="middle"
-                        fill={isHighlighted ? "#FFFFFF" : "#475569"}
-                        style={{ 
-                          fontFamily: "Inter, system-ui, sans-serif", 
-                          fontSize: isHighlighted ? "11px" : "8px", 
-                          fontWeight: "900",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.02em",
-                          paintOrder: "stroke",
-                          stroke: isHighlighted ? "none" : "rgba(255,255,255,0.9)",
-                          strokeWidth: "3px"
-                        }}
-                      >
-                        {districtName}
-                      </text>
-                    </g>
+                    {!zoomToDistrict && (
+                      <g className="pointer-events-none">
+                        <text
+                          x={x}
+                          y={y}
+                          textAnchor="middle"
+                          fill={isHighlighted ? "#2563eb" : "#475569"}
+                          style={{ 
+                            fontFamily: "Inter, system-ui, sans-serif", 
+                            fontSize: isHighlighted ? "11px" : "8px", 
+                            fontWeight: "900",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.02em",
+                            paintOrder: "stroke",
+                            stroke: "rgba(255,255,255,0.9)",
+                            strokeWidth: "2px"
+                          }}
+                        >
+                          {districtName}
+                        </text>
+                      </g>
+                    )}
                   </React.Fragment>
                 );
               });
             }}
           </Geographies>
+
+          {zoomToDistrict && townMarkers.map(({ name, coordinates, type }) => (
+            <Marker key={name} coordinates={coordinates}>
+              <circle r={type === 'town' ? 4 : 3} fill={type === 'town' ? "#2563eb" : "#64748b"} stroke="#fff" strokeWidth={1.5} />
+              <text
+                textAnchor="middle"
+                y={-10}
+                style={{ 
+                  fontFamily: "Inter, system-ui, sans-serif", 
+                  fontSize: type === 'town' ? "10px" : "8px", 
+                  fontWeight: type === 'town' ? "900" : "700",
+                  fill: type === 'town' ? "#1e293b" : "#475569",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.02em",
+                  paintOrder: "stroke",
+                  stroke: "white",
+                  strokeWidth: "3px"
+                }}
+              >
+                {name}
+              </text>
+            </Marker>
+          ))}
       </ComposableMap>
     </div>
   );
