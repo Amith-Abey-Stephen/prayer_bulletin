@@ -5,6 +5,24 @@ import { z } from 'zod';
 
 type Metadata = z.infer<typeof MetadataSchema>;
 
+function formatWikidataAsText(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    const bindings = parsed?.results?.bindings;
+    if (!bindings?.[0]) return '';
+    const b = bindings[0];
+    const parts: string[] = [];
+    if (b.itemLabel?.value) parts.push(`Name: ${b.itemLabel.value}`);
+    if (b.population?.value) parts.push(`Population: ${b.population.value}`);
+    if (b.area?.value) parts.push(`Area: ${b.area.value} km²`);
+    if (b.capitalLabel?.value) parts.push(`Capital: ${b.capitalLabel.value}`);
+    if (b.literacy?.value) parts.push(`Literacy: ${b.literacy.value}%`);
+    return parts.join('\n');
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Orchestrates fetching from trusted sources and using AI to extract structured data.
  */
@@ -15,16 +33,14 @@ export async function getLocationMetadata(
   const cacheKey = `${type}:${name}`;
 
   try {
-    // Parallel fetch from trusted sources
     const [wikidataRaw, wikipediaText] = await Promise.all([
       fetchWikidataRaw(name),
       fetchWikipediaExtract(name)
     ]);
 
-    // Combine raw source texts
-    const sourceText = `SOURCE: WIKIDATA\n${wikidataRaw}\n\nSOURCE: WIKIPEDIA\n${wikipediaText}`;
+    const wikidataFormatted = formatWikidataAsText(wikidataRaw);
+    const sourceText = `KNOWLEDGE SOURCES\n\nWikidata:\n${wikidataFormatted}\n\nWikipedia extract:\n${wikipediaText}`;
 
-    // Pass raw text to the deterministic AI extractor
     const metadata = await extractMetadata(sourceText, cacheKey);
     return metadata;
   } catch (e) {

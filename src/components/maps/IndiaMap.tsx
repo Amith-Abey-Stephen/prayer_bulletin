@@ -8,6 +8,7 @@ import {
   Marker
 } from "react-simple-maps";
 import { STATE_CENTERS } from "@/data/mapConstants";
+import { formatName } from "../../../lib/utils";
 
 const geoUrl = "/maps/india-level1.json";
 
@@ -17,7 +18,7 @@ interface IndiaMapProps {
 
 const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
   return (
-    <div className="w-full h-[500px] md:h-[600px] bg-white rounded-2xl border border-slate-200">
+    <div className="w-full h-[500px] md:h-[600px] bg-white rounded-2xl border border-[#e8e5e0]">
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{
@@ -37,13 +38,13 @@ const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
                 <Geography
                   key={geo.rsmKey}
                   geography={geo}
-                  fill={isHighlighted ? "#2563eb" : "#F8FAFC"}
-                  stroke="#CBD5E1"
+                  fill={isHighlighted ? "#1e3a5f" : "#f8f6f3"}
+                  stroke="#d6d3d1"
                   strokeWidth={0.5}
                   style={{
                     default: { outline: "none" },
-                    hover: { fill: "#DBEAFE", outline: "none" },
-                    pressed: { fill: "#2563eb", outline: "none" },
+                    hover: { fill: "#ebf0f7", outline: "none" },
+                    pressed: { fill: "#1e3a5f", outline: "none" },
                   }}
                 />
               );
@@ -57,7 +58,7 @@ const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
               <Marker key={name} coordinates={coords}>
                 <text
                   textAnchor="middle"
-                  fill="#1E293B"
+                  fill="#1e3a5f"
                   style={{ 
                     fontFamily: "system-ui", 
                     fontSize: "14px", 
@@ -67,7 +68,7 @@ const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
                     strokeWidth: "4px"
                   }}
                 >
-                  {name.replace(/([a-z])([A-Z])/g, '$1 $2')}
+                  {formatName(name)}
                 </text>
               </Marker>
             );

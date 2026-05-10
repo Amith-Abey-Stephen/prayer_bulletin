@@ -1,16 +1,19 @@
 "use client";
 
-import React, { useMemo, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ComposableMap,
   Geographies,
   Geography,
   Marker
 } from "react-simple-maps";
-import { geoPath, geoMercator } from "d3-geo";
-import { STATE_CENTERS } from "@/data/mapConstants";
+import { geoPath } from "d3-geo";
 
 const geoUrl = "/maps/india-level2.json";
+const level3Url = "/maps/india-level3.json";
+
+// Global cache for level 3 data to avoid multiple 12MB loads
+let cachedLevel3: any = null;
 interface StateDistrictMapProps {
   stateName: string;
   highlightDistrict?: string;
@@ -26,6 +29,7 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
   });
 
   const [townMarkers, setTownMarkers] = useState<{ name: string; coordinates: [number, number]; type: 'town' | 'taluka' }[]>([]);
+  const [subDistrictGeos, setSubDistrictGeos] = useState<any[]>([]);
 
   useEffect(() => {
     async function calculateBounds() {
@@ -119,6 +123,37 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
           }
 
           setTownMarkers(markers);
+
+          // Handle Level 3 Sub-district borders
+          if (zoomToDistrict && talukas && talukas.length > 0) {
+            try {
+              let level3Data = cachedLevel3;
+              if (!level3Data) {
+                const response = await fetch(level3Url);
+                level3Data = await response.json();
+                cachedLevel3 = level3Data;
+              }
+
+              if (level3Data && level3Data.objects) {
+                // TopoJSON to GeoJSON
+                const topojson = await import("topojson-client");
+                const allSubDistricts = topojson.feature(level3Data, level3Data.objects.INDADM3gbOpen) as any;
+                
+                // Filter sub-districts that match our taluka names
+                const filtered = allSubDistricts.features.filter((f: any) => {
+                  const name = f.properties.shapeName.toLowerCase().replace(/\s+/g, "");
+                  return talukas.some(t => {
+                    const tName = t.name.toLowerCase().replace(/\s+/g, "");
+                    return name.includes(tName) || tName.includes(name);
+                  });
+                });
+                
+                setSubDistrictGeos(filtered);
+              }
+            } catch (err) {
+              console.error("Error loading Level 3 data:", err);
+            }
+          }
         }
       } catch (e) {
         console.error("Error calculating map bounds:", e);
@@ -126,10 +161,10 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
     }
 
     calculateBounds();
-  }, [stateName, highlightDistrict, zoomToDistrict, towns]);
+  }, [stateName, highlightDistrict, zoomToDistrict, towns, talukas]);
 
   return (
-    <div className="w-full h-full min-h-[300px] bg-slate-50 rounded-2xl relative border border-slate-200">
+    <div className="w-full h-full min-h-[300px] bg-[#f8f6f3] rounded-2xl relative border border-[#e8e5e0]">
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{
@@ -141,9 +176,9 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
           <Geographies geography={geoUrl}>
             {({ geographies, projection }) => {
               const stateDistricts = geographies.filter((geo) => {
-                const geoState = geo.properties.NAME_1.replace(/\s+/g, "").toLowerCase();
-                const searchState = stateName.replace(/\s+/g, "").toLowerCase();
-                return geoState === searchState;
+                const geoState = geo.properties.NAME_1.toLowerCase().trim();
+                const targetState = stateName.toLowerCase().trim();
+                return geoState === targetState;
               });
 
               if (stateDistricts.length === 0) return null;
@@ -160,31 +195,31 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
                   <React.Fragment key={geo.rsmKey}>
                     <Geography
                       geography={geo}
-                      fill={isHighlighted ? "#EFF6FF" : "#FFFFFF"}
-                      stroke={isHighlighted ? "#2563eb" : "#E2E8F0"}
-                      strokeWidth={isHighlighted ? 3 : 0.5}
+                      fill={isHighlighted ? "#ebf0f7" : "#FFFFFF"}
+                      stroke={isHighlighted ? "#1e3a5f" : "#d6d3d1"}
+                      strokeWidth={isHighlighted ? 3 : 0.8}
                       style={{
                         default: { outline: "none" },
-                        hover: { fill: "#EFF6FF", stroke: "#3B82F6", outline: "none" },
-                        pressed: { fill: "#2563eb", outline: "none" },
+                        hover: { fill: "#f5f2ed", stroke: "#1e3a5f", outline: "none" },
+                        pressed: { fill: "#1e3a5f", outline: "none" },
                       }}
                     />
-                    {!zoomToDistrict && (
+                    {(!zoomToDistrict || isHighlighted) && (
                       <g className="pointer-events-none">
                         <text
                           x={x}
                           y={y}
                           textAnchor="middle"
-                          fill={isHighlighted ? "#2563eb" : "#475569"}
+                          fill={isHighlighted ? "#1e3a5f" : "#57534e"}
                           style={{ 
                             fontFamily: "Inter, system-ui, sans-serif", 
-                            fontSize: isHighlighted ? "11px" : "8px", 
+                            fontSize: isHighlighted ? "12px" : "9px", 
                             fontWeight: "900",
                             textTransform: "uppercase",
-                            letterSpacing: "0.02em",
+                            letterSpacing: "0.05em",
                             paintOrder: "stroke",
-                            stroke: "rgba(255,255,255,0.9)",
-                            strokeWidth: "2px"
+                            stroke: "#ffffff",
+                            strokeWidth: "3px"
                           }}
                         >
                           {districtName}
@@ -197,9 +232,28 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
             }}
           </Geographies>
 
+          {/* Render Sub-district borders (Level 3) if available */}
+          {zoomToDistrict && subDistrictGeos.length > 0 && (
+            <g className="sub-districts">
+              {subDistrictGeos.map((geo, i) => (
+                <Geography
+                  key={`sub-${i}`}
+                  geography={geo}
+                  fill="rgba(30, 58, 95, 0.03)"
+                  stroke="#a8a29e"
+                  strokeWidth={0.5}
+                  style={{
+                    default: { outline: "none" },
+                    hover: { fill: "rgba(30, 58, 95, 0.08)", outline: "none" },
+                  }}
+                />
+              ))}
+            </g>
+          )}
+
           {zoomToDistrict && townMarkers.map(({ name, coordinates, type }) => (
             <Marker key={name} coordinates={coordinates}>
-              <circle r={type === 'town' ? 4 : 3} fill={type === 'town' ? "#2563eb" : "#64748b"} stroke="#fff" strokeWidth={1.5} />
+              <circle r={type === 'town' ? 4 : 3} fill={type === 'town' ? "#1e3a5f" : "#78716c"} stroke="#fff" strokeWidth={1.5} />
               <text
                 textAnchor="middle"
                 y={-10}
@@ -207,7 +261,7 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
                   fontFamily: "Inter, system-ui, sans-serif", 
                   fontSize: type === 'town' ? "10px" : "8px", 
                   fontWeight: type === 'town' ? "900" : "700",
-                  fill: type === 'town' ? "#1e293b" : "#475569",
+                  fill: type === 'town' ? "#1a1a2e" : "#57534e",
                   textTransform: "uppercase",
                   letterSpacing: "0.02em",
                   paintOrder: "stroke",

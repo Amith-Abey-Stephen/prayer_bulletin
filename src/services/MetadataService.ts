@@ -2,17 +2,19 @@
 import fs from 'fs';
 import path from 'path';
 import { getLocationMetadata } from '../../lib/location-service';
+import { clearCache } from '../../lib/ai-extractor';
+import { normalizeLiteracy } from '../../lib/utils';
 
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 
-export interface ReligionData {
+interface ReligionData {
   hindu?: number | null;
   muslim?: number | null;
   christian?: number | null;
   [key: string]: number | null | undefined;
 }
 
-export interface LocationMetadata {
+interface LocationMetadata {
   name: string;
   capital?: string;
   population?: number;
@@ -20,7 +22,7 @@ export interface LocationMetadata {
   literacy?: number;
   religion?: ReligionData;
   majorCities?: (string | { name: string; lat: number; lng: number })[];
-  talukas?: { name: string; lat: number; lng: number }[];
+  talukas?: (string | { name: string; lat: number; lng: number })[];
   governmentHead?: string;
   governmentParty?: string;
   lastUpdated: string;
@@ -170,26 +172,6 @@ export class MetadataService {
     return religions;
   }
 
-  private static async fetchReligionLabels(itemId: string): Promise<ReligionData> {
-    const religions: ReligionData = {};
-    if (!itemId) return religions;
-
-    const bindings = await this.sparqlFetch(`
-      SELECT ?religionLabel WHERE {
-        wd:${itemId} wdt:P140 ?religion.
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-      }
-    `);
-
-    if (bindings) {
-      for (const b of bindings) {
-        const label = b.religionLabel?.value?.toLowerCase();
-        if (label) religions[label] = 0;
-      }
-    }
-    return religions;
-  }
-
   private static async fetchMajorCities(itemId: string): Promise<string[]> {
     const cities: string[] = [];
     if (!itemId) return cities;
@@ -210,26 +192,76 @@ export class MetadataService {
     return cities;
   }
 
+  static isValidParty(party: string | undefined | null): boolean {
+    if (!party) return false;
+    const lower = party.toLowerCase().trim();
+    const invalid = [
+      "ghana", "india", "unknown", "none", "n/a", "not available",
+      "unknown party", "independent", ""
+    ];
+    if (invalid.includes(lower)) return false;
+    if (lower.includes("country") || lower.includes("nation")) return false;
+    return true;
+  }
+
+  static hasEmptyFields(data: LocationMetadata): boolean {
+    const religion = data.religion;
+    const hasReligion =
+      religion &&
+      (religion.hindu != null || religion.muslim != null || religion.christian != null);
+    const hasGovernment = data.governmentParty != null && data.governmentParty !== "";
+    return !hasReligion || !hasGovernment;
+  }
+
+  static async fillMissingFromAI(
+    name: string,
+    type: "states" | "districts" | "towns",
+    existing: LocationMetadata,
+    parent?: string
+  ): Promise<LocationMetadata> {
+    const aiName = type === "districts" && parent ? `${name}, ${parent}` : name;
+    clearCache(`${type}:${aiName}`);
+    const ai = await this.fetchFromAI(aiName, type);
+    if (!ai) return existing;
+
+    const religion = ai.religion || {};
+    const hasAIReligion =
+      religion.hindu != null || religion.muslim != null || religion.christian != null;
+
+    const existingRel = existing.religion || {};
+    const hasExistingReligion =
+      existingRel.hindu != null || existingRel.muslim != null || existingRel.christian != null;
+
+    return {
+      ...existing,
+      religion: hasExistingReligion ? existing.religion : (hasAIReligion ? religion : existing.religion),
+      governmentParty: existing.governmentParty && this.isValidParty(existing.governmentParty)
+        ? existing.governmentParty
+        : (this.isValidParty(ai.governmentParty) ? ai.governmentParty : existing.governmentParty),
+      governmentHead: existing.governmentHead || ai.governmentHead || existing.governmentHead,
+      literacy: existing.literacy ?? ai.literacy ?? existing.literacy,
+      majorCities:
+        existing.majorCities && existing.majorCities.length > 0
+          ? existing.majorCities
+          : (ai.majorCities?.length ? ai.majorCities : existing.majorCities),
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+
   static async fetchStateFromWikidata(stateName: string): Promise<LocationMetadata | null> {
     console.log(`[MetadataService] Fetching State: ${stateName}`);
 
     try {
       const bindings = await this.sparqlFetch(`
-        SELECT ?state ?capitalLabel ?population ?area ?literacy ?headLabel ?partyLabel
+        SELECT ?state ?capitalLabel ?population ?area
         WHERE {
           ?state wdt:P17 wd:Q668;
-                 (rdfs:label|skos:altLabel) "${stateName}"@en.
+                 rdfs:label "${stateName}"@en.
           OPTIONAL { ?state wdt:P36 ?capital. }
           OPTIONAL { ?state wdt:P1082 ?population. }
           OPTIONAL { ?state wdt:P2046 ?area. }
-          OPTIONAL { ?state wdt:P2744 ?literacy. }
-          OPTIONAL { ?state wdt:P6 ?head. }
-          OPTIONAL { ?head wdt:P102 ?party. }
-          
           SERVICE wikibase:label {
             bd:serviceParam wikibase:language "en".
-            ?head rdfs:label ?headLabel.
-            ?party rdfs:label ?partyLabel.
             ?capital rdfs:label ?capitalLabel.
           }
         } LIMIT 1
@@ -244,18 +276,23 @@ export class MetadataService {
 
       const first = bindings[0];
       const stateId = first.state?.value?.split('/')?.pop() ?? '';
-      
-      const [religion, cities, ai] = await Promise.all([
+
+      const [wikidataReligion, cities, ai] = await Promise.all([
         stateId ? this.fetchReligionData(stateId) : Promise.resolve({}),
         stateId ? this.fetchMajorCities(stateId) : Promise.resolve([]),
         aiPromise
       ]);
 
       const finalLiteracy = first.literacy
-        ? parseFloat(first.literacy.value) * (parseFloat(first.literacy.value) < 1 ? 100 : 1)
+        ? normalizeLiteracy(first.literacy.value)
         : ai?.literacy ?? undefined;
 
-      const majorCities = cities.length > 0 ? cities : (ai?.majorCities ?? []);
+      const majorCities = ai?.majorCities?.length ? ai.majorCities : cities;
+
+      const hasWikidataReligion = wikidataReligion && Object.keys(wikidataReligion).length > 0;
+      const hasAIReligion = ai?.religion && (
+        ai.religion.hindu != null || ai.religion.muslim != null || ai.religion.christian != null
+      );
 
       return {
         name: stateName,
@@ -263,9 +300,9 @@ export class MetadataService {
         population: first.population ? parseInt(first.population.value) : ai?.population,
         area: first.area ? parseFloat(first.area.value) : ai?.area,
         literacy: finalLiteracy,
-        governmentHead: first.headLabel?.value ?? ai?.governmentHead,
-        governmentParty: first.partyLabel?.value ?? ai?.governmentParty,
-        religion: Object.keys(religion).length > 0 ? religion : (ai?.religion ?? {}),
+        governmentHead: ai?.governmentHead ?? undefined,
+        governmentParty: ai?.governmentParty ?? undefined,
+        religion: hasWikidataReligion ? wikidataReligion : (hasAIReligion ? (ai?.religion ?? {}) : {}),
         majorCities: majorCities,
         lastUpdated: new Date().toISOString()
       };
@@ -339,7 +376,7 @@ export class MetadataService {
 
       const majorCities = Array.from(citiesSet).slice(0, 5);
       const finalLiteracy = first.literacy
-        ? parseFloat(first.literacy.value) * (parseFloat(first.literacy.value) < 1 ? 100 : 1)
+        ? normalizeLiteracy(first.literacy.value)
         : undefined;
 
       const hasBasicData = first.population && first.area && finalLiteracy && Object.keys(religion).length > 0;
@@ -364,25 +401,4 @@ export class MetadataService {
     }
   }
 
-  static async fetchTownFromNominatim(townName: string): Promise<any | null> {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(townName + ', India')}&format=json&limit=1`;
-    try {
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'PrayerBulletinGenerator/1.0' },
-      });
-      const data = await res.json();
-      if (data && data.length > 0) {
-        return {
-          name: townName,
-          lat: parseFloat(data[0].lat),
-          lon: parseFloat(data[0].lon),
-          displayName: data[0].display_name,
-          lastUpdated: new Date().toISOString(),
-        };
-      }
-    } catch (err) {
-      console.error(`Error fetching Nominatim for ${townName}:`, err);
-    }
-    return null;
-  }
 }
