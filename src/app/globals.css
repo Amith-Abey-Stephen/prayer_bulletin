@@ -1,19 +1,46 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: oklch(0.985 0 0);
+  --color-foreground: oklch(0.145 0 0);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #f8f6f3;
+  color: #1a1a2e;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.skeleton-card {
+  border-radius: 1rem;
+  background: linear-gradient(90deg, #f0eeeb 25%, #e8e5e0 50%, #f0eeeb 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
 }
