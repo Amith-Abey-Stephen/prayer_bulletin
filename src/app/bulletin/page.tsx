@@ -150,6 +150,7 @@ function BulletinContent() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [digitalId, setDigitalId] = useState("");
   const bulletinRef = useRef<HTMLDivElement>(null);
+  const coverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setDigitalId(`PBG-${Math.random().toString(36).substring(7).toUpperCase()}`);
@@ -322,25 +323,94 @@ function BulletinContent() {
   }, [matchedState, matchedDistrict, allDistrictNames]);
 
   const handleDownload = async () => {
-    if (!bulletinRef.current) return;
-
+    if (!bulletinRef.current || !coverRef.current) return;
+  
     setIsDownloading(true);
     try {
-      const canvas = await html2canvas(bulletinRef.current, {
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10; // 10mm margin
+      const innerWidth = pdfWidth - (margin * 2);
+      const innerHeight = pdfHeight - (margin * 2);
+  
+      // Capture Cover Page
+      const coverCanvas = await html2canvas(coverRef.current, {
         scale: 2,
         useCORS: true,
         logging: false,
         backgroundColor: "#F8FAFC",
       });
-
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "px",
-        format: [canvas.width, canvas.height],
+  
+      const coverImgData = coverCanvas.toDataURL("image/png");
+      const coverRatio = coverCanvas.width / coverCanvas.height;
+      
+      // Calculate dimensions to fit in A4 with margins
+      let coverW = innerWidth;
+      let coverH = innerWidth / coverRatio;
+      if (coverH > innerHeight) {
+        coverH = innerHeight;
+        coverW = innerHeight * coverRatio;
+      }
+  
+      // Center the image
+      const coverX = margin + (innerWidth - coverW) / 2;
+      const coverY = margin + (innerHeight - coverH) / 2;
+  
+      pdf.addImage(coverImgData, "PNG", coverX, coverY, coverW, coverH);
+  
+      // Capture Main Content
+      const contentCanvas = await html2canvas(bulletinRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#F8FAFC",
       });
-
-      pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+  
+      const contentImgData = contentCanvas.toDataURL("image/png");
+      const contentWidth = contentCanvas.width;
+      const contentHeight = contentCanvas.height;
+      
+      // Calculate how many A4 pages are needed
+      // Width is fixed to innerWidth
+      const pxToMmScale = innerWidth / (contentWidth / 2); // /2 because scale: 2 was used
+      const mmContentHeight = (contentHeight / 2) * pxToMmScale;
+      
+      let heightLeft = mmContentHeight;
+      let position = 0;
+      let pageNum = 1;
+  
+      while (heightLeft > 0) {
+        if (pageNum > 1 || true) { // Always add a new page for content (page 1 was cover)
+          pdf.addPage();
+        }
+        
+        // Add image slice for this page
+        // We use a clip to only show the relevant part
+        // jsPDF addImage doesn't support clipping directly easily, 
+        // but we can add the whole image with a Y offset.
+        // Or we can slice the canvas. Slicing the canvas is cleaner.
+        
+        const pageSliceH = Math.min(heightLeft, innerHeight);
+        
+        // For the first content page, we might want to center if it's small, 
+        // but usually it's better to start at the top.
+        pdf.addImage(
+          contentImgData, 
+          "PNG", 
+          margin, 
+          margin - (position), 
+          innerWidth, 
+          mmContentHeight,
+          undefined,
+          'FAST'
+        );
+  
+        heightLeft -= innerHeight;
+        position += innerHeight;
+        pageNum++;
+      }
+  
       pdf.save(
         `prayer-bulletin-${location
           .toLowerCase()
@@ -408,9 +478,7 @@ function BulletinContent() {
         <div className="max-w-5xl mx-auto px-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-[#1e3a5f] rounded-xl flex items-center justify-center text-white font-bold italic text-base shadow-sm shrink-0">
-                C
-              </div>
+             
               <div className="min-w-0">
                 <p className="text-[9px] uppercase tracking-[0.15em] text-[#a8a29e] font-bold leading-none mb-0.5">
                   Prayer Department | AGDMC
@@ -551,11 +619,64 @@ function BulletinContent() {
             </div>
 
             {/* The Bulletin - PDF Content */}
-            <div
-              ref={bulletinRef}
-              className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[#e8e5e0] rounded-[1.5rem] overflow-hidden relative"
-              style={{ minHeight: "1120px" }}
-            >
+            <div className="space-y-12">
+              {/* COVER PAGE */}
+              <div
+                ref={coverRef}
+                className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[#e8e5e0] rounded-[1.5rem] overflow-hidden relative flex flex-col items-center justify-center p-20 text-center"
+                style={{ height: "1120px" }}
+              >
+                {/* Decorative Background */}
+                <div className="absolute top-0 right-0 w-96 h-96 bg-[#ebf0f7]/60 rounded-full -mr-48 -mt-48 blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#ebf0f7]/30 rounded-full -ml-48 -mb-48 blur-3xl"></div>
+                
+                <div className="relative z-10 space-y-8">
+                  <div className="w-20 h-20 bg-[#1e3a5f] rounded-3xl flex items-center justify-center text-white font-bold italic text-4xl shadow-lg mx-auto mb-10">
+                    C
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <p className="text-[#2563eb] font-bold tracking-[0.3em] uppercase text-sm">
+                      Prayer Department | AGDMC
+                    </p>
+                    <h1 className="text-7xl font-black tracking-tighter text-[#1a1a2e] leading-tight">
+                      CRY FOR <br />
+                      <span className="text-[#2563eb]">INDIA</span>
+                    </h1>
+                  </div>
+                  
+                  <div className="h-1 w-24 bg-[#e8e5e0] mx-auto"></div>
+                  
+                  <div className="space-y-2">
+                    <p className="text-2xl font-semibold text-[#57534e]">
+                      {matchedDistrict || matchedState || location}
+                    </p>
+                    <p className="text-sm text-[#a8a29e] font-bold uppercase tracking-widest">
+                      Special Prayer Report &middot; 2026
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="absolute bottom-20 left-0 right-0 z-10">
+                  <p className="text-xs text-[#a8a29e] font-bold uppercase tracking-widest mb-2">
+                    Generated on
+                  </p>
+                  <p className="text-lg font-mono font-bold text-[#1e3a5f]">
+                    {new Date().toLocaleDateString('en-IN', { 
+                      day: '2-digit', 
+                      month: 'long', 
+                      year: 'numeric' 
+                    })}
+                  </p>
+                </div>
+              </div>
+
+              {/* CONTENT PAGE */}
+              <div
+                ref={bulletinRef}
+                className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[#e8e5e0] rounded-[1.5rem] overflow-hidden relative"
+                style={{ minHeight: "1120px" }}
+              >
               {/* Decorative Background */}
               <div className="absolute top-0 right-0 w-72 h-72 bg-[#ebf0f7]/60 rounded-full -mr-32 -mt-32 blur-3xl"></div>
               <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#ebf0f7]/30 rounded-full -ml-40 -mb-40 blur-3xl"></div>
@@ -1062,6 +1183,7 @@ function BulletinContent() {
                 </div>
               </div>
             </div>
+          </div>
 
             {/* Bottom Tip */}
             <div className="mt-8 text-center no-print">
