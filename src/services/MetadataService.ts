@@ -203,7 +203,7 @@ export class MetadataService {
 
   static hasEmptyFields(data: LocationMetadata): boolean {
     const religion = data.religion;
-    const hasReligion = religion && Object.keys(religion).length > 0;
+    const hasReligion = religion && Object.values(religion).some(v => v != null);
     const hasGovernment = data.governmentParty != null && data.governmentParty !== "";
     const hasTalukas = data.talukas && data.talukas.length > 0;
     const hasMajorCities = data.majorCities && data.majorCities.length >= 8;
@@ -222,12 +222,10 @@ export class MetadataService {
     if (!ai) return existing;
 
     const religion = ai.religion || {};
-    const hasAIReligion =
-      religion.hindu != null || religion.muslim != null || religion.christian != null;
+    const hasAIReligion = religion && Object.values(religion).some(v => v != null);
 
     const existingRel = existing.religion || {};
-    const hasExistingReligion =
-      existingRel.hindu != null || existingRel.muslim != null || existingRel.christian != null;
+    const hasExistingReligion = existingRel && Object.values(existingRel).some(v => v != null);
 
     return {
       ...existing,
@@ -291,9 +289,7 @@ export class MetadataService {
       const majorCities = ai?.majorCities?.length ? ai.majorCities : cities;
 
       const hasWikidataReligion = wikidataReligion && Object.keys(wikidataReligion).length > 0;
-      const hasAIReligion = ai?.religion && (
-        ai.religion.hindu != null || ai.religion.muslim != null || ai.religion.christian != null
-      );
+      const hasAIReligion = ai?.religion && Object.values(ai.religion).some(v => v != null);
 
       return {
         name: stateName,
@@ -404,3 +400,4 @@ export class MetadataService {
   }
 
 }
+  

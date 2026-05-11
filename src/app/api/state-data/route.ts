@@ -50,7 +50,7 @@ async function respond(data: any, source: string, project: boolean) {
     if (p.literacy != null) body.literacy = p.literacy;
     body.governmentHead = p.governmentHead ?? body.governmentHead;
     body.governmentParty = p.rulingParty ?? body.governmentParty;
-    if (p.religion && (p.religion.hindu != null || p.religion.muslim != null || p.religion.christian != null)) {
+    if (p.religion && Object.values(p.religion).some(v => v != null)) {
       body.religion = p.religion;
     }
   }

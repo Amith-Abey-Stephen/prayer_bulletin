@@ -87,12 +87,12 @@ export async function extractMetadata(
         role: 'system',
         content: `You are a data assistant. For any Indian state, district, or city, return EXACTLY this JSON schema — nothing else, no extra fields, no arrays at top level:
 
-{"name":"","capital":"","population":0,"area":0,"literacy":0,"religion":{},"governmentHead":"","rulingParty":"","majorCities":[],"talukas":[],"coordinates":{"lat":0,"lng":0}}
+{"name":"","capital":"","population":0,"area":0,"literacy":0,"religion":{"Hindu":80.0,"Muslim":15.0,"Christian":5.0},"governmentHead":"","rulingParty":"","majorCities":[],"talukas":[],"coordinates":{"lat":0,"lng":0}}
 
 REQUIRED FILL RULES:
-- religion: Return the TOP 3-5 religions as keys with real census percentages (0-100) as values. Use 2011 Census data. THESE ARE MANDATORY.
+- religion: Return the TOP 3-5 religions as keys with real census percentages (0-100) as values (e.g. {"Hindu": 80.5, "Muslim": 15.2, ...}). Use 2011 Census data. MANDATORY - VALUES MUST BE NUMBERS, NOT NULL.
 - governmentHead: current Chief Minister (for states) or equivalent. MANDATORY.
-- rulingParty: current ruling party name, e.g. "CPI(M)", "BJP", "INC". MANDATORY.
+- rulingParty: current ruling party name, e.g. "BJP", "INC". MANDATORY.
 - literacy: percentage 0-100, e.g. 94.0. MANDATORY.
 - majorCities: 8-15 real cities/towns. INCLUDE all significant urban hubs. MANDATORY.
 - population, area: from given data or your knowledge.
