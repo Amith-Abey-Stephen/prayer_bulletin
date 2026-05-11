@@ -7,7 +7,7 @@ import {
   Geography,
   Marker
 } from "react-simple-maps";
-import { geoPath } from "d3-geo";
+import { geoPath, geoContains, geoCentroid } from "d3-geo";
 
 const geoUrl = "/maps/india-level2.json";
 const level3Url = "/maps/india-level3.json";
@@ -39,12 +39,12 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
         
         // Filter features based on state, and optionally zoom to district
         let features = data.features.filter((f: any) => 
-          f.properties.NAME_1.replace(/\s+/g, "").toLowerCase() === stateName.replace(/\s+/g, "").toLowerCase()
+          f.properties?.NAME_1?.replace(/\s+/g, "").toLowerCase() === stateName?.replace(/\s+/g, "").toLowerCase()
         );
 
         if (zoomToDistrict && highlightDistrict) {
           const districtFeatures = features.filter((f: any) => 
-            f.properties.NAME_2.toLowerCase().replace(/\s+/g, "").includes(highlightDistrict.toLowerCase().replace(/\s+/g, ""))
+            f.properties?.NAME_2?.toLowerCase().replace(/\s+/g, "").includes(highlightDistrict.toLowerCase().replace(/\s+/g, ""))
           );
           if (districtFeatures.length > 0) {
             features = districtFeatures;
@@ -125,7 +125,7 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
           setTownMarkers(markers);
 
           // Handle Level 3 Sub-district borders
-          if (zoomToDistrict && talukas && talukas.length > 0) {
+          if (zoomToDistrict) {
             try {
               let level3Data = cachedLevel3;
               if (!level3Data) {
@@ -139,13 +139,44 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
                 const topojson = await import("topojson-client");
                 const allSubDistricts = topojson.feature(level3Data, level3Data.objects.INDADM3gbOpen) as any;
                 
-                // Filter sub-districts that match our taluka names
+                // Get district geometry for spatial filtering
+                // Get district geometry for spatial filtering
+                // Merge multiple features if necessary (some districts are MultiPolygons or split)
+                const districtGeometry = features.length > 1 
+                  ? { type: "GeometryCollection", geometries: features.map(f => f.geometry) }
+                  : features[0]?.geometry;
+
+                if (!districtGeometry) {
+                  console.error("[MapDebug] No district geometry found for filtering");
+                  setSubDistrictGeos([]);
+                  return;
+                }
+                
+                // Filter sub-districts
                 const filtered = allSubDistricts.features.filter((f: any) => {
-                  const name = f.properties.shapeName.toLowerCase().replace(/\s+/g, "");
-                  return talukas.some(t => {
-                    const tName = t.name.toLowerCase().replace(/\s+/g, "");
-                    return name.includes(tName) || tName.includes(name);
-                  });
+                  if (!f.properties) return false;
+                  
+                  // 1. Name match with provided talukas
+                  const shapeName = f.properties?.shapeName;
+                  if (shapeName) {
+                    const name = shapeName.toLowerCase().replace(/\s+/g, "");
+                    const hasNameMatch = talukas && talukas.some(t => {
+                      if (!t?.name) return false;
+                      const tName = t.name.toLowerCase().replace(/\s+/g, "");
+                      return name.includes(tName) || tName.includes(name);
+                    });
+                    
+                    if (hasNameMatch) return true;
+                  }
+
+                  // 2. Spatial match: is the centroid of this sub-district inside the district?
+                  try {
+                    const centroid = geoCentroid(f);
+                    const isInside = geoContains(districtGeometry, centroid);
+                    return isInside;
+                  } catch (e) {
+                    return false;
+                  }
                 });
                 
                 setSubDistrictGeos(filtered);
@@ -164,7 +195,7 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
   }, [stateName, highlightDistrict, zoomToDistrict, towns, talukas]);
 
   return (
-    <div className="w-full h-full min-h-[300px] bg-[#f8f6f3] rounded-2xl relative border border-[#e8e5e0]">
+    <div className="w-full h-full min-h-[300px] bg-[#f0f4f8] rounded-2xl relative border border-[#e8e5e0]">
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{
@@ -176,16 +207,16 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
           <Geographies geography={geoUrl}>
             {({ geographies, projection }) => {
               const stateDistricts = geographies.filter((geo) => {
-                const geoState = geo.properties.NAME_1.toLowerCase().trim();
-                const targetState = stateName.toLowerCase().trim();
+                const geoState = geo.properties?.NAME_1?.toLowerCase().trim();
+                const targetState = stateName?.toLowerCase().trim();
                 return geoState === targetState;
               });
 
               if (stateDistricts.length === 0) return null;
 
               return stateDistricts.map((geo) => {
-                const districtName = geo.properties.NAME_2;
-                const isHighlighted = highlightDistrict && 
+                const districtName = geo.properties?.NAME_2;
+                const isHighlighted = highlightDistrict && districtName && 
                   districtName.toLowerCase().replace(/\s+/g, "").includes(highlightDistrict.toLowerCase().replace(/\s+/g, ""));
                 
                 const centroid = geoPath().centroid(geo);
@@ -195,12 +226,12 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
                   <React.Fragment key={geo.rsmKey}>
                     <Geography
                       geography={geo}
-                      fill={isHighlighted ? "#ebf0f7" : "#FFFFFF"}
-                      stroke={isHighlighted ? "#1e3a5f" : "#d6d3d1"}
-                      strokeWidth={isHighlighted ? 3 : 0.8}
+                      fill={isHighlighted ? "#ffffff" : "#f1f5f9"}
+                      stroke={isHighlighted ? "#1e3a5f" : "#cbd5e1"}
+                      strokeWidth={isHighlighted ? 2.5 : 0.8}
                       style={{
                         default: { outline: "none" },
-                        hover: { fill: "#f5f2ed", stroke: "#1e3a5f", outline: "none" },
+                        hover: { fill: "#cbd5e1", stroke: "#1e3a5f", outline: "none" },
                         pressed: { fill: "#1e3a5f", outline: "none" },
                       }}
                     />
@@ -234,25 +265,57 @@ const StateDistrictMap: React.FC<StateDistrictMapProps> = ({ stateName, highligh
 
           {/* Render Sub-district borders (Level 3) if available */}
           {zoomToDistrict && subDistrictGeos.length > 0 && (
-            <g className="sub-districts">
-              {subDistrictGeos.map((geo, i) => (
-                <Geography
-                  key={`sub-${i}`}
-                  geography={geo}
-                  fill="rgba(30, 58, 95, 0.03)"
-                  stroke="#a8a29e"
-                  strokeWidth={0.5}
-                  style={{
-                    default: { outline: "none" },
-                    hover: { fill: "rgba(30, 58, 95, 0.08)", outline: "none" },
-                  }}
-                />
-              ))}
-            </g>
+            <Geographies geography={{ type: "FeatureCollection", features: subDistrictGeos }}>
+              {({ geographies, projection }) => (
+                <g className="sub-districts">
+                  {geographies.map((geo, i) => {
+                    const centroid = geoPath().centroid(geo);
+                    const [x, y] = projection(centroid) || [0, 0];
+                    const name = geo.properties.shapeName;
+
+                    return (
+                      <React.Fragment key={`sub-frag-${i}`}>
+                        <Geography
+                          geography={geo}
+                          fill="rgba(30, 58, 95, 0.05)"
+                          stroke="#94a3b8"
+                          strokeWidth={0.6}
+                          style={{
+                            default: { outline: "none" },
+                            hover: { fill: "rgba(30, 58, 95, 0.15)", outline: "none" },
+                          }}
+                        />
+                        <g className="pointer-events-none">
+                          <text
+                            x={x}
+                            y={y}
+                            textAnchor="middle"
+                            fill="#4b5563"
+                            style={{ 
+                              fontFamily: "Inter, system-ui, sans-serif", 
+                              fontSize: "7px", 
+                              fontWeight: "700",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.02em",
+                              paintOrder: "stroke",
+                              stroke: "#ffffff",
+                              strokeWidth: "2px",
+                              opacity: 0.8
+                            }}
+                          >
+                            {name}
+                          </text>
+                        </g>
+                      </React.Fragment>
+                    );
+                  })}
+                </g>
+              )}
+            </Geographies>
           )}
 
-          {zoomToDistrict && townMarkers.map(({ name, coordinates, type }) => (
-            <Marker key={name} coordinates={coordinates}>
+          {zoomToDistrict && townMarkers.map(({ name, coordinates, type }, i) => (
+            <Marker key={`${name}-${i}`} coordinates={coordinates}>
               <circle r={type === 'town' ? 4 : 3} fill={type === 'town' ? "#1e3a5f" : "#78716c"} stroke="#fff" strokeWidth={1.5} />
               <text
                 textAnchor="middle"

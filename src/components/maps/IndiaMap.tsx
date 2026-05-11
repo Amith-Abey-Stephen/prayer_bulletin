@@ -18,7 +18,7 @@ interface IndiaMapProps {
 
 const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
   return (
-    <div className="w-full h-[500px] md:h-[600px] bg-white rounded-2xl border border-[#e8e5e0]">
+    <div className="w-full h-[500px] md:h-[600px] bg-[#f0f4f8] rounded-2xl border border-[#e8e5e0]">
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{
@@ -38,9 +38,9 @@ const IndiaMap: React.FC<IndiaMapProps> = ({ highlightState }) => {
                 <Geography
                   key={geo.rsmKey}
                   geography={geo}
-                  fill={isHighlighted ? "#1e3a5f" : "#f8f6f3"}
-                  stroke="#d6d3d1"
-                  strokeWidth={0.5}
+                  fill={isHighlighted ? "#1e3a5f" : "#ffffff"}
+                  stroke={isHighlighted ? "#1e3a5f" : "#cbd5e1"}
+                  strokeWidth={isHighlighted ? 1 : 0.5}
                   style={{
                     default: { outline: "none" },
                     hover: { fill: "#ebf0f7", outline: "none" },
