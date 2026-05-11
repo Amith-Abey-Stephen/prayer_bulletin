@@ -8,9 +8,6 @@ import { normalizeLiteracy } from '../../lib/utils';
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 
 interface ReligionData {
-  hindu?: number | null;
-  muslim?: number | null;
-  christian?: number | null;
   [key: string]: number | null | undefined;
 }
 
@@ -181,7 +178,7 @@ export class MetadataService {
         ?city wdt:P31 wd:Q515;
               wdt:P131 wd:${itemId}.
         SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-      } LIMIT 5
+      } LIMIT 15
     `);
 
     if (bindings) {
@@ -206,11 +203,11 @@ export class MetadataService {
 
   static hasEmptyFields(data: LocationMetadata): boolean {
     const religion = data.religion;
-    const hasReligion =
-      religion &&
-      (religion.hindu != null || religion.muslim != null || religion.christian != null);
+    const hasReligion = religion && Object.keys(religion).length > 0;
     const hasGovernment = data.governmentParty != null && data.governmentParty !== "";
-    return !hasReligion || !hasGovernment;
+    const hasTalukas = data.talukas && data.talukas.length > 0;
+    const hasMajorCities = data.majorCities && data.majorCities.length >= 8;
+    return !hasReligion || !hasGovernment || !hasTalukas || !hasMajorCities;
   }
 
   static async fillMissingFromAI(
@@ -241,9 +238,13 @@ export class MetadataService {
       governmentHead: existing.governmentHead || ai.governmentHead || existing.governmentHead,
       literacy: existing.literacy ?? ai.literacy ?? existing.literacy,
       majorCities:
-        existing.majorCities && existing.majorCities.length > 0
-          ? existing.majorCities
-          : (ai.majorCities?.length ? ai.majorCities : existing.majorCities),
+        ai.majorCities && ai.majorCities.length > (existing.majorCities?.length || 0)
+          ? ai.majorCities
+          : existing.majorCities,
+      talukas:
+        existing.talukas && existing.talukas.length > 0
+          ? existing.talukas
+          : (ai.talukas?.length ? ai.talukas : existing.talukas),
       lastUpdated: new Date().toISOString(),
     };
   }
@@ -374,7 +375,7 @@ export class MetadataService {
         if (b.cityLabel?.value) citiesSet.add(b.cityLabel.value);
       });
 
-      const majorCities = Array.from(citiesSet).slice(0, 5);
+      const majorCities = Array.from(citiesSet).slice(0, 15);
       const finalLiteracy = first.literacy
         ? normalizeLiteracy(first.literacy.value)
         : undefined;
@@ -393,6 +394,7 @@ export class MetadataService {
         literacy: finalLiteracy ?? ai?.literacy,
         religion: Object.keys(religion).length > 0 ? religion : (ai?.religion ?? {}),
         majorCities: majorCities.length > 0 ? majorCities : (ai?.majorCities ?? []),
+        talukas: ai?.talukas ?? [],
         lastUpdated: new Date().toISOString(),
       };
     } catch (err) {

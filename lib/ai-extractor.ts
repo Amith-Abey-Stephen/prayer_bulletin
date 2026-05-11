@@ -6,11 +6,7 @@ export const MetadataSchema = z.object({
   population: z.coerce.number().nullable().catch(null).default(null),
   area: z.coerce.number().nullable().catch(null).default(null),
   literacy: z.coerce.number().nullable().catch(null).default(null),
-  religion: z.object({
-    hindu: z.coerce.number().nullable().catch(null).default(null),
-    muslim: z.coerce.number().nullable().catch(null).default(null),
-    christian: z.coerce.number().nullable().catch(null).default(null)
-  }).default({ hindu: null, muslim: null, christian: null }),
+  religion: z.record(z.string(), z.coerce.number().nullable().catch(null)).default({}),
   governmentHead: z.string().nullable().default(null),
   rulingParty: z.string().nullable().default(null),
   majorCities: z.array(z.union([
@@ -91,14 +87,14 @@ export async function extractMetadata(
         role: 'system',
         content: `You are a data assistant. For any Indian state, district, or city, return EXACTLY this JSON schema — nothing else, no extra fields, no arrays at top level:
 
-{"name":"","capital":"","population":0,"area":0,"literacy":0,"religion":{"hindu":0,"muslim":0,"christian":0},"governmentHead":"","rulingParty":"","majorCities":[],"talukas":[],"coordinates":{"lat":0,"lng":0}}
+{"name":"","capital":"","population":0,"area":0,"literacy":0,"religion":{},"governmentHead":"","rulingParty":"","majorCities":[],"talukas":[],"coordinates":{"lat":0,"lng":0}}
 
 REQUIRED FILL RULES:
-- religion.hindu, religion.muslim, religion.christian: MUST be real census percentages (0-100). Use 2011 Census of India data. THESE ARE MANDATORY.
+- religion: Return the TOP 3-5 religions as keys with real census percentages (0-100) as values. Use 2011 Census data. THESE ARE MANDATORY.
 - governmentHead: current Chief Minister (for states) or equivalent. MANDATORY.
 - rulingParty: current ruling party name, e.g. "CPI(M)", "BJP", "INC". MANDATORY.
 - literacy: percentage 0-100, e.g. 94.0. MANDATORY.
-- majorCities: 3-5 real cities. MANDATORY.
+- majorCities: 8-15 real cities/towns. INCLUDE all significant urban hubs. MANDATORY.
 - population, area: from given data or your knowledge.
 - Return ONE JSON object. NEVER an array.`
       },
@@ -184,7 +180,7 @@ export async function projectTo2026(
         role: 'system',
         content: `You project Indian location demographics to 2026 estimates. Return EXACTLY this JSON:
 
-{"population":0,"literacy":0,"religion":{"hindu":0,"muslim":0,"christian":0},"governmentHead":"","rulingParty":""}
+{"population":0,"literacy":0,"religion":{},"governmentHead":"","rulingParty":""}
 
 Rules:
 - population: estimate 2026 using ~1% annual growth from base
