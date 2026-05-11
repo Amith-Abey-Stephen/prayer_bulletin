@@ -20,7 +20,23 @@ export async function GET(request: Request) {
                 loc.name.toLowerCase().includes(query) || 
                 loc.parent.toLowerCase().includes(query)
             )
-            .slice(0, 5); // Limit local results to 5
+            .sort((a: any, b: any) => {
+                const aName = a.name.toLowerCase();
+                const bName = b.name.toLowerCase();
+                
+                // Exact match first
+                if (aName === query) return -1;
+                if (bName === query) return 1;
+                
+                // Starts with query next
+                const aStarts = aName.startsWith(query);
+                const bStarts = bName.startsWith(query);
+                if (aStarts && !bStarts) return -1;
+                if (bStarts && !aStarts) return 1;
+                
+                return aName.localeCompare(bName);
+            })
+            .slice(0, 8); // Limit local results to 8
 
         // If we have space, add towns from Nominatim
         if (suggestions.length < 8) {

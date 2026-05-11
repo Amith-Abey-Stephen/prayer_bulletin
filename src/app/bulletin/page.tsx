@@ -164,32 +164,52 @@ function BulletinContent() {
         const response = await fetch("/maps/india-level2.json");
         const data = await response.json();
 
+        // 1. Exact State Match
+        const exactState = data.features.find(
+          (f: any) => f.properties.NAME_1.toLowerCase() === location.toLowerCase()
+        );
+
+        if (exactState) {
+          setMatchedState(exactState.properties.NAME_1);
+          setMatchedDistrict(null);
+          const stateDistricts = data.features.filter(
+            (f: any) => f.properties.NAME_1.toLowerCase() === exactState.properties.NAME_1.toLowerCase()
+          );
+          setStateData((prev: any) => ({ ...prev, totalDistricts: stateDistricts.length }));
+          return;
+        }
+
+        // 2. Exact District Match
+        const exactDistrict = data.features.find(
+          (f: any) => f.properties.NAME_2.toLowerCase() === location.toLowerCase()
+        );
+
+        if (exactDistrict) {
+          setMatchedState(exactDistrict.properties.NAME_1);
+          setMatchedDistrict(exactDistrict.properties.NAME_2);
+          const stateDistricts = data.features.filter(
+            (f: any) => f.properties.NAME_1.toLowerCase() === exactDistrict.properties.NAME_1.toLowerCase()
+          );
+          setStateData((prev: any) => ({ ...prev, totalDistricts: stateDistricts.length }));
+          return;
+        }
+
+        // 3. Partial District Match
         const districtMatch = data.features.find(
-          (f: any) =>
-            f.properties.NAME_2.toLowerCase().includes(location.toLowerCase())
+          (f: any) => f.properties.NAME_2.toLowerCase().includes(location.toLowerCase())
         );
 
         if (districtMatch) {
           setMatchedState(districtMatch.properties.NAME_1);
           setMatchedDistrict(districtMatch.properties.NAME_2);
-
           const stateDistricts = data.features.filter(
-            (f: any) =>
-              f.properties.NAME_1.toLowerCase() ===
-              districtMatch.properties.NAME_1.toLowerCase()
+            (f: any) => f.properties.NAME_1.toLowerCase() === districtMatch.properties.NAME_1.toLowerCase()
           );
-          setStateData((prev: any) => ({
-            ...prev,
-            totalDistricts: stateDistricts.length,
-          }));
+          setStateData((prev: any) => ({ ...prev, totalDistricts: stateDistricts.length }));
         } else {
+          // 4. Partial State Match
           const stateMatch = data.features.find(
-            (f: any) =>
-              f.properties.NAME_1.toLowerCase() ===
-                location.toLowerCase() ||
-              f.properties.NAME_1
-                .toLowerCase()
-                .includes(location.toLowerCase())
+            (f: any) => f.properties.NAME_1.toLowerCase().includes(location.toLowerCase())
           );
           if (stateMatch) {
             setMatchedState(stateMatch.properties.NAME_1);
@@ -330,92 +350,64 @@ function BulletinContent() {
       const pdf = new jsPDF("p", "mm", "a4");
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      const margin = 10; // 10mm margin
+      const margin = 10;
       const innerWidth = pdfWidth - (margin * 2);
       const innerHeight = pdfHeight - (margin * 2);
   
-      // Capture Cover Page
+      // 1. Capture and Add Cover Page
       const coverCanvas = await html2canvas(coverRef.current, {
-        scale: 2,
+        scale: 1.5, // Reduced from 2 to 1.5 for better balance of quality/size
         useCORS: true,
-        logging: false,
         backgroundColor: "#F8FAFC",
       });
-  
-      const coverImgData = coverCanvas.toDataURL("image/png");
       const coverRatio = coverCanvas.width / coverCanvas.height;
-      
-      // Calculate dimensions to fit in A4 with margins
       let coverW = innerWidth;
       let coverH = innerWidth / coverRatio;
       if (coverH > innerHeight) {
         coverH = innerHeight;
         coverW = innerHeight * coverRatio;
       }
+      pdf.addImage(
+        coverCanvas.toDataURL("image/jpeg", 0.7), // Use JPEG with 0.7 quality
+        "JPEG", 
+        margin + (innerWidth - coverW) / 2, 
+        margin + (innerHeight - coverH) / 2, 
+        coverW, 
+        coverH,
+        undefined,
+        'FAST'
+      );
   
-      // Center the image
-      const coverX = margin + (innerWidth - coverW) / 2;
-      const coverY = margin + (innerHeight - coverH) / 2;
-  
-      pdf.addImage(coverImgData, "PNG", coverX, coverY, coverW, coverH);
-  
-      // Capture Main Content
-      const contentCanvas = await html2canvas(bulletinRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#F8FAFC",
-      });
-  
-      const contentImgData = contentCanvas.toDataURL("image/png");
-      const contentWidth = contentCanvas.width;
-      const contentHeight = contentCanvas.height;
+      // 2. Identify all cards to capture
+      const cards = Array.from(bulletinRef.current.querySelectorAll('.pdf-card')) as HTMLElement[];
       
-      // Calculate how many A4 pages are needed
-      // Width is fixed to innerWidth
-      const pxToMmScale = innerWidth / (contentWidth / 2); // /2 because scale: 2 was used
-      const mmContentHeight = (contentHeight / 2) * pxToMmScale;
-      
-      let heightLeft = mmContentHeight;
-      let position = 0;
-      let pageNum = 1;
+      let currentY = margin;
+      let firstContentPage = true;
   
-      while (heightLeft > 0) {
-        if (pageNum > 1 || true) { // Always add a new page for content (page 1 was cover)
+      for (const card of cards) {
+        const canvas = await html2canvas(card, {
+          scale: 1.5,
+          useCORS: true,
+          backgroundColor: "#F8FAFC",
+        });
+  
+        const imgData = canvas.toDataURL("image/jpeg", 0.7); // Use JPEG with 0.7 quality
+        const ratio = canvas.width / canvas.height;
+        const imgW = innerWidth;
+        const imgH = innerWidth / ratio;
+  
+        // Check if we need a new page
+        if (firstContentPage || (currentY + imgH > pdfHeight - margin)) {
           pdf.addPage();
+          currentY = margin;
+          firstContentPage = false;
         }
-        
-        // Add image slice for this page
-        // We use a clip to only show the relevant part
-        // jsPDF addImage doesn't support clipping directly easily, 
-        // but we can add the whole image with a Y offset.
-        // Or we can slice the canvas. Slicing the canvas is cleaner.
-        
-        const pageSliceH = Math.min(heightLeft, innerHeight);
-        
-        // For the first content page, we might want to center if it's small, 
-        // but usually it's better to start at the top.
-        pdf.addImage(
-          contentImgData, 
-          "PNG", 
-          margin, 
-          margin - (position), 
-          innerWidth, 
-          mmContentHeight,
-          undefined,
-          'FAST'
-        );
   
-        heightLeft -= innerHeight;
-        position += innerHeight;
-        pageNum++;
+        pdf.addImage(imgData, "JPEG", margin, currentY, imgW, imgH, undefined, 'FAST');
+        currentY += imgH + 5; 
       }
   
-      pdf.save(
-        `prayer-bulletin-${location
-          .toLowerCase()
-          .replace(/\s+/g, "-")}.pdf`
-      );
+      pdf.save(`prayer-bulletin-${location.toLowerCase().replace(/\s+/g, "-")}.pdf`);
     } catch (error) {
       console.error("PDF generation failed:", error);
     } finally {
@@ -483,8 +475,8 @@ function BulletinContent() {
                 <p className="text-[9px] uppercase tracking-[0.15em] text-[#a8a29e] font-bold leading-none mb-0.5">
                   Prayer Department | AGDMC
                 </p>
-                <h2 className="text-base sm:text-lg font-bold text-[#1a1a2e] leading-none truncate">
-                  Cry For India <span className="text-[#2563eb]">Prayer Bulletin</span>
+                <h2 className="text-sm sm:text-base lg:text-lg font-bold text-[#1a1a2e] leading-none truncate">
+                  Cry For India <span className="text-[#2563eb] hidden xs:inline">Prayer Bulletin</span>
                 </h2>
               </div>
             </div>
@@ -623,18 +615,14 @@ function BulletinContent() {
               {/* COVER PAGE */}
               <div
                 ref={coverRef}
-                className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[#e8e5e0] rounded-[1.5rem] overflow-hidden relative flex flex-col items-center justify-center p-20 text-center"
-                style={{ height: "1120px" }}
+                className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[#e8e5e0] rounded-[1.5rem] overflow-hidden relative flex flex-col items-center justify-center p-8 sm:p-20 text-center"
+                style={{ minHeight: "1120px", height: "auto" }}
               >
                 {/* Decorative Background */}
                 <div className="absolute top-0 right-0 w-96 h-96 bg-[#ebf0f7]/60 rounded-full -mr-48 -mt-48 blur-3xl"></div>
                 <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#ebf0f7]/30 rounded-full -ml-48 -mb-48 blur-3xl"></div>
                 
                 <div className="relative z-10 space-y-8">
-                  <div className="w-20 h-20 bg-[#1e3a5f] rounded-3xl flex items-center justify-center text-white font-bold italic text-4xl shadow-lg mx-auto mb-10">
-                    C
-                  </div>
-                  
                   <div className="space-y-4">
                     <p className="text-[#2563eb] font-bold tracking-[0.3em] uppercase text-sm">
                       Prayer Department | AGDMC
@@ -713,7 +701,7 @@ function BulletinContent() {
               {/* Bulletin Body */}
               <div className="p-8 sm:p-12 space-y-14 relative z-10">
                 {/* Section 01: National Context */}
-                <div className="space-y-5">
+                <div className="pdf-card space-y-5">
                   <div className="flex items-center gap-3">
                     <span className="w-7 h-7 rounded-lg bg-[#1e3a5f] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
                       01
@@ -731,7 +719,7 @@ function BulletinContent() {
                 </div>
 
                 {/* Section 02: Regional View */}
-                <div className="space-y-5">
+                <div className="pdf-card space-y-5">
                   <div className="flex items-center gap-3">
                     <span className="w-7 h-7 rounded-lg bg-[#1e3a5f] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
                       02
@@ -758,7 +746,7 @@ function BulletinContent() {
                 </div>
 
                 {/* Section 03: Analytics */}
-                <div className="space-y-6">
+                <div className="pdf-card space-y-6">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-3">
                       <span className="w-7 h-7 rounded-lg bg-[#1e3a5f] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
@@ -778,7 +766,7 @@ function BulletinContent() {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <StatCard
                       label="Total Population"
                       value={formatNumber(stateData?.population)}
@@ -869,7 +857,7 @@ function BulletinContent() {
                         </svg>
                       }
                     />
-                    <div className="col-span-2 p-5 sm:p-6 bg-[#fefce8] rounded-2xl border border-[#fde68a]">
+                    <div className="col-span-1 sm:col-span-2 p-5 sm:p-6 bg-[#fefce8] rounded-2xl border border-[#fde68a]">
                       <p className="text-[10px] uppercase tracking-[0.12em] text-[#a16207] font-bold mb-3 flex items-center gap-2">
                         <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                           <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -877,20 +865,19 @@ function BulletinContent() {
                         Religious Demographics
                       </p>
                       <div className="flex flex-wrap gap-x-5 gap-y-2">
-                        {stateData?.religion ? (
-                          Object.entries(stateData.religion).map(
-                            ([rel, val]: [string, any]) => (
-                              <div
-                                key={rel}
-                                className="flex items-center gap-2"
-                              >
+                        {stateData?.religion && Object.keys(stateData.religion).length > 0 ? (
+                          Object.entries(stateData.religion)
+                            .sort(([, a], [, b]) => (b as number) - (a as number))
+                            .slice(0, 5)
+                            .map(([rel, val]: [string, any]) => (
+                              <div key={rel} className="flex items-center gap-2">
                                 <div className="w-1.5 h-1.5 rounded-full bg-[#d4a853]"></div>
                                 <span className="text-xs font-semibold text-[#57534e] capitalize">
                                   {rel}:
                                 </span>
                                 <span className="text-xs font-bold text-[#1a1a2e]">
-                                  {val !== null && typeof val === "number"
-                                    ? val.toFixed(1)
+                                  {val !== null && val !== undefined && !isNaN(Number(val))
+                                    ? Number(val).toFixed(1)
                                     : val ?? "---"}
                                   %
                                 </span>
@@ -960,7 +947,7 @@ function BulletinContent() {
                       {districtsSummary.map((dist, i) => (
                         <div
                           key={i}
-                          className="space-y-6 animate-fade-in-up"
+                          className="pdf-card space-y-6 animate-fade-in-up"
                           style={{ animationDelay: `${i * 100}ms` }}
                         >
                           <div className="flex items-center gap-4">
@@ -987,7 +974,7 @@ function BulletinContent() {
                               </div>
                             </div>
 
-                            <div className="md:col-span-8 grid grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="md:col-span-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                               <StatCard
                                 label="Total Population"
                                 value={formatNumber(dist.population)}
@@ -1063,9 +1050,11 @@ function BulletinContent() {
                                   Religious Breakdown (%)
                                 </p>
                                 <div className="space-y-1.5">
-                                  {dist.religion ? (
-                                    Object.entries(dist.religion).map(
-                                      ([rel, val]: [string, any]) => (
+                                  {dist.religion && Object.keys(dist.religion).length > 0 ? (
+                                    Object.entries(dist.religion)
+                                      .sort(([, a], [, b]) => (b as number) - (a as number))
+                                      .slice(0, 5)
+                                      .map(([rel, val]: [string, any]) => (
                                         <div
                                           key={rel}
                                           className="flex items-center justify-between"
@@ -1074,15 +1063,13 @@ function BulletinContent() {
                                             {rel}
                                           </span>
                                           <span className="text-[10px] font-bold text-[#1a1a2e]">
-                                            {val !== null &&
-                                            typeof val === "number"
-                                              ? val.toFixed(1)
+                                            {val !== null && val !== undefined && !isNaN(Number(val))
+                                              ? Number(val).toFixed(1)
                                               : val ?? "---"}
                                             %
                                           </span>
                                         </div>
-                                      )
-                                    )
+                                      ))
                                   ) : (
                                     <span className="text-[10px] text-[#a8a29e] italic block py-2 text-center">
                                       Demographic breakdown unavailable
@@ -1111,7 +1098,7 @@ function BulletinContent() {
                             </div>
                             <div className="h-px flex-1 bg-[#e8e5e0]"></div>
                           </div>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div className="h-24 skeleton-card rounded-xl"></div>
                             <div className="h-24 skeleton-card rounded-xl"></div>
                             <div className="h-24 skeleton-card rounded-xl"></div>
@@ -1125,7 +1112,7 @@ function BulletinContent() {
                 )}
 
                 {/* Section 05: Prayer Points */}
-                <div className="space-y-6 bg-[#faf8f5] p-8 sm:p-10 rounded-[1.5rem] border border-[#e8e5e0]">
+                <div className="pdf-card space-y-6 bg-[#faf8f5] p-8 sm:p-10 rounded-[1.5rem] border border-[#e8e5e0]">
                   <div className="flex items-center gap-3">
                     <span className="w-7 h-7 rounded-lg bg-[#1e3a5f] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
                       05
@@ -1158,7 +1145,7 @@ function BulletinContent() {
                 </div>
 
                 {/* Footer Branding */}
-                <div className="pt-10 mt-10 border-t border-[#e8e5e0] flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+                <div className="pdf-card pt-10 mt-10 border-t border-[#e8e5e0] flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
                   <div>
                     <p className="text-[10px] text-[#a8a29e] font-bold uppercase tracking-wider mb-1.5">
                       Generated by
